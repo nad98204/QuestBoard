@@ -348,3 +348,32 @@ We recommend you instead use a development build to avoid limitations. Learn mor
  LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
  LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
  LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
