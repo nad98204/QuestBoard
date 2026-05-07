@@ -1,0 +1,350 @@
+env: load .env
+env: export EXPO_PUBLIC_GEMINI_API_KEY EXPO_PUBLIC_OPENAI_API_KEY
+Starting project at D:\Code Web\NVHT\QuestBoard
+Starting Metro Bundler
+Waiting on http://localhost:8081
+Logs for your project will appear below.
+Android .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 781ms index.js (876 modules)
+ ERROR  expo-notifications: Android Push notifications (remote notifications) functionality provided by expo-notifications was removed from Expo Go with the release of SDK 53. Use a development build instead of Expo Go. Read more at https://docs.expo.dev/develop/development-builds/introduction/.
+ WARN  `expo-notifications` functionality is not fully supported in Expo Go:
+We recommend you instead use a development build to avoid limitations. Learn more: https://expo.fyi/dev-client.
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard saveState] AsyncStorage đã lưu
+ LOG  [QuestBoard saveState] Gọi Firestore {"path": "users/device_5c3a65c3-4dd1-4056-b457-d751a1106cbd", "updatedAt": 1778149036827}
+ LOG  [QuestBoard saveState] Firestore setDoc hoàn tất
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] gainXp level check {"afterLevel": 4, "beforeLevel": 4, "leveledUp": false, "rawXp": 20}
+ LOG  [QuestBoard SystemMessage] toggleWorkTask after gainXp {"afterLevel": 4, "beforeLevel": 4, "leveledUp": false, "taskId": "1778149036792"}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard saveState] AsyncStorage đã lưu
+ LOG  [QuestBoard saveState] Gọi Firestore {"path": "users/device_5c3a65c3-4dd1-4056-b457-d751a1106cbd", "updatedAt": 1778149313385}
+ LOG  [QuestBoard saveState] Firestore setDoc hoàn tất
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard saveState] AsyncStorage đã lưu
+ LOG  [QuestBoard saveState] Gọi Firestore {"path": "users/device_5c3a65c3-4dd1-4056-b457-d751a1106cbd", "updatedAt": 1778149318553}
+ LOG  [QuestBoard saveState] Firestore setDoc hoàn tất
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+Android .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 46ms index.js (1 module)
+ ERROR  expo-notifications: Android Push notifications (remote notifications) functionality provided by expo-notifications was removed from Expo Go with the release of SDK 53. Use a development build instead of Expo Go. Read more at https://docs.expo.dev/develop/development-builds/introduction/.
+ WARN  `expo-notifications` functionality is not fully supported in Expo Go:
+We recommend you instead use a development build to avoid limitations. Learn more: https://expo.fyi/dev-client.
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] gainXp level check {"afterLevel": 4, "beforeLevel": 4, "leveledUp": false, "rawXp": 15}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard saveState] AsyncStorage đã lưu
+ LOG  [QuestBoard saveState] Gọi Firestore {"path": "users/device_5c3a65c3-4dd1-4056-b457-d751a1106cbd", "updatedAt": 1778149337516}
+ LOG  [QuestBoard saveState] Firestore setDoc hoàn tất
+ LOG  [QuestBoard SystemMessage] gainXp level check {"afterLevel": 4, "beforeLevel": 4, "leveledUp": false, "rawXp": 15}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard saveState] AsyncStorage đã lưu
+ LOG  [QuestBoard saveState] Gọi Firestore {"path": "users/device_5c3a65c3-4dd1-4056-b457-d751a1106cbd", "updatedAt": 1778149341913}
+ LOG  [QuestBoard saveState] Firestore setDoc hoàn tất
+ LOG  [QuestBoard SystemMessage] gainXp level check {"afterLevel": 5, "beforeLevel": 4, "leveledUp": true, "rawXp": 135}
+ LOG  [QuestBoard SystemMessage] showSystemMessage called {"color": "#60a5fa", "lines": ["HP tối đa +10"], "title": "PASSIVE MỞ KHÓA"}
+ LOG  [QuestBoard SystemMessage] setSystemMsg next {"color": "#60a5fa", "lines": ["HP tối đa +10"], "title": "PASSIVE MỞ KHÓA", "visible": true}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#60a5fa", "lines": ["HP tối đa +10"], "title": "PASSIVE MỞ KHÓA", "visible": true}
+ LOG  [SystemMessage] render {"color": "#60a5fa", "lines": ["HP tối đa +10"], "rendered": false, "title": "PASSIVE MỞ KHÓA", "visible": true}
+ LOG  [SystemMessage] visible effect {"title": "PASSIVE MỞ KHÓA", "visible": true}
+ LOG  [QuestBoard saveState] AsyncStorage đã lưu
+ LOG  [SystemMessage] render {"color": "#60a5fa", "lines": ["HP tối đa +10"], "rendered": false, "title": "PASSIVE MỞ KHÓA", "visible": true}
+ LOG  [QuestBoard saveState] Gọi Firestore {"path": "users/device_5c3a65c3-4dd1-4056-b457-d751a1106cbd", "updatedAt": 1778149345593}
+ LOG  [QuestBoard saveState] Firestore setDoc hoàn tất
+ LOG  [QuestBoard SystemMessage] showSystemMessage called {"color": "#facc15", "lines": ["Chiến binh"], "title": "THÀNH TÍCH MỚI"}
+ LOG  [QuestBoard SystemMessage] setSystemMsg next {"color": "#facc15", "lines": ["Chiến binh"], "title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": ["Chiến binh"], "title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": ["Chiến binh"], "rendered": false, "title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [QuestBoard SystemMessage] gainXp level check {"afterLevel": 5, "beforeLevel": 5, "leveledUp": false, "rawXp": 110}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": ["Chiến binh"], "title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": ["Chiến binh"], "rendered": false, "title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [QuestBoard saveState] AsyncStorage đã lưu
+ LOG  [QuestBoard saveState] Gọi Firestore {"path": "users/device_5c3a65c3-4dd1-4056-b457-d751a1106cbd", "updatedAt": 1778149346676}
+ LOG  [QuestBoard saveState] Firestore setDoc hoàn tất
+ LOG  [QuestBoard SystemMessage] gainXp level check {"afterLevel": 6, "beforeLevel": 5, "leveledUp": true, "rawXp": 80}
+ LOG  [QuestBoard SystemMessage] showSystemMessage called {"color": "#facc15", "lines": ["Cấp độ: 5 → 6", "XP tiếp theo: 305"], "title": "CẤP ĐỘ TĂNG"}
+ LOG  [QuestBoard SystemMessage] setSystemMsg next {"color": "#facc15", "lines": ["Cấp độ: 5 → 6", "XP tiếp theo: 305"], "title": "CẤP ĐỘ TĂNG", "visible": true}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": ["Cấp độ: 5 → 6", "XP tiếp theo: 305"], "title": "CẤP ĐỘ TĂNG", "visible": true}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": ["Cấp độ: 5 → 6", "XP tiếp theo: 305"], "rendered": false, "title": "CẤP ĐỘ TĂNG", "visible": true}
+ LOG  [QuestBoard saveState] AsyncStorage đã lưu
+ LOG  [QuestBoard saveState] Gọi Firestore {"path": "users/device_5c3a65c3-4dd1-4056-b457-d751a1106cbd", "updatedAt": 1778149347196}
+ LOG  [QuestBoard saveState] Firestore setDoc hoàn tất
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+Android .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 58ms index.js (1 module)
+ ERROR  expo-notifications: Android Push notifications (remote notifications) functionality provided by expo-notifications was removed from Expo Go with the release of SDK 53. Use a development build instead of Expo Go. Read more at https://docs.expo.dev/develop/development-builds/introduction/.
+ WARN  `expo-notifications` functionality is not fully supported in Expo Go:
+We recommend you instead use a development build to avoid limitations. Learn more: https://expo.fyi/dev-client.
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": [], "title": "", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": [], "rendered": false, "title": "", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "", "visible": false}
+ LOG  [QuestBoard SystemMessage] gainXp level check {"afterLevel": 1, "beforeLevel": 1, "leveledUp": false, "rawXp": 15}
+ LOG  [QuestBoard SystemMessage] gainXp: no level/title/passive message (caller may show quest complete)
+ LOG  [QuestBoard SystemMessage] toggleExercise after gainXp {"afterLevel": 1, "beforeLevel": 1, "key": "run", "leveledUp": false, "scheduledXpMessage": false}
+ LOG  [QuestBoard SystemMessage] toggleExercise queueMicrotask: exercise complete (no xp/stat toast) → showSystemMessage
+ LOG  [QuestBoard SystemMessage] showSystemMessage() ENTER
+ LOG  [QuestBoard SystemMessage] showSystemMessage called {"color": "#22c55e", "lines": ["Chạy bộ", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH"}
+ LOG  [QuestBoard SystemMessage] setSystemMsg next {"color": "#22c55e", "lines": ["Chạy bộ", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Chạy bộ", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Chạy bộ", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [SystemMessage] visible effect {"title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#22c55e", "lines": ["Chạy bộ", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [QuestBoard saveState] AsyncStorage đã lưu
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Chạy bộ", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [QuestBoard saveState] Gọi Firestore {"path": "users/device_5c3a65c3-4dd1-4056-b457-d751a1106cbd", "updatedAt": 1778149820274}
+ LOG  [QuestBoard saveState] Firestore setDoc hoàn tất
+ LOG  [QuestBoard SystemMessage] showSystemMessage() ENTER
+ LOG  [QuestBoard SystemMessage] showSystemMessage called {"color": "#facc15", "lines": ["Khởi đầu"], "title": "THÀNH TÍCH MỚI"}
+ LOG  [QuestBoard SystemMessage] setSystemMsg next {"color": "#facc15", "lines": ["Khởi đầu"], "title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": ["Khởi đầu"], "title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": ["Khởi đầu"], "rendered": false, "title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [SystemMessage] visible effect {"title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": ["Khởi đầu"], "title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": ["Khởi đầu"], "rendered": true, "title": "THÀNH TÍCH MỚI", "visible": true}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": ["Khởi đầu"], "title": "THÀNH TÍCH MỚI", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": ["Khởi đầu"], "rendered": false, "title": "THÀNH TÍCH MỚI", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "THÀNH TÍCH MỚI", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#facc15", "lines": ["Khởi đầu"], "title": "THÀNH TÍCH MỚI", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": ["Khởi đầu"], "rendered": false, "title": "THÀNH TÍCH MỚI", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#facc15", "lines": ["Khởi đầu"], "title": "THÀNH TÍCH MỚI", "visible": false}
+ LOG  [SystemMessage] render {"color": "#facc15", "lines": ["Khởi đầu"], "rendered": false, "title": "THÀNH TÍCH MỚI", "visible": false}
+ LOG  [QuestBoard SystemMessage] gainXp level check {"afterLevel": 1, "beforeLevel": 1, "leveledUp": false, "rawXp": 15}
+ LOG  [QuestBoard SystemMessage] gainXp: no level/title/passive message (caller may show quest complete)
+ LOG  [QuestBoard SystemMessage] toggleExercise after gainXp {"afterLevel": 1, "beforeLevel": 1, "key": "push", "leveledUp": false, "scheduledXpMessage": false}
+ LOG  [QuestBoard SystemMessage] toggleExercise queueMicrotask: exercise complete (no xp/stat toast) → showSystemMessage
+ LOG  [QuestBoard SystemMessage] showSystemMessage() ENTER
+ LOG  [QuestBoard SystemMessage] showSystemMessage called {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH"}
+ LOG  [QuestBoard SystemMessage] setSystemMsg next {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [SystemMessage] visible effect {"title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [QuestBoard saveState] AsyncStorage đã lưu
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": true, "title": "THỂ DỤC HOÀN THÀNH", "visible": true}
+ LOG  [QuestBoard saveState] Gọi Firestore {"path": "users/device_5c3a65c3-4dd1-4056-b457-d751a1106cbd", "updatedAt": 1778149869172}
+ LOG  [QuestBoard saveState] Firestore setDoc hoàn tất
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] systemMsg state committed {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] visible effect {"title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại: true
+ LOG  [hydrateAiOvercomeQuests] check {"alreadyAiPersisted": true, "today": "2026-05-07"}
+ LOG  [hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này
+ LOG  [hydrateAiDailyHabits] dùng cache 2026-05-07
+ LOG  [QuestBoard SystemMessage] render SystemMessage props {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "title": "THỂ DỤC HOÀN THÀNH", "visible": false}
+ LOG  [SystemMessage] render {"color": "#22c55e", "lines": ["Hít đất", "+15 XP"], "rendered": false, "title": "THỂ DỤC HOÀN THÀNH", "visible": false}

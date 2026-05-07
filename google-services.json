@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "614871598679",
+    "project_id": "questboard-9c9c4",
+    "storage_bucket": "questboard-9c9c4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:614871598679:android:a00639b12a2cc57c86c512",
+        "android_client_info": {
+          "package_name": "com.dangpkzxy.QuestBoard"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCoPVU8UFRLH8WAGPrsosGxt8gcJG-ZxEA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
