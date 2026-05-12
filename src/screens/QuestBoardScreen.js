@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   AppState,
-  Alert,
   ScrollView,
-  Switch,
   View,
   Text,
   TextInput,
@@ -12,6 +10,8 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  ImageBackground,
 } from 'react-native';
 import {
   SafeAreaView,
@@ -23,6 +23,7 @@ import CheckRow from '../components/CheckRow';
 import SystemMessage from '../components/SystemMessage';
 import {
   BAD_HABITS,
+  DEATH_DEBUFF_HOURS,
   EXERCISE_FULL_XP,
   GOOD_HABITS,
   GOOD_HABIT_XP,
@@ -32,6 +33,7 @@ import {
 } from '../utils/constants';
 import {
   advanceStreak,
+  applyDeath,
   applyStatGain,
   applyStatLevelFitnessBonus,
   applyXpGain,
@@ -40,8 +42,11 @@ import {
   getPassiveBonus,
   getStatBonus,
   getStatMilestoneBonus,
+  hasDeathDebuff,
+  isDead,
   normalizeFitnessConfig,
   normalizeStats,
+  revive,
   streakMultiplier,
   xpToNextLevel,
   getTodayKey,
@@ -54,18 +59,35 @@ import SettingsScreen from './SettingsScreen';
 import AiCoachScreen from './AiCoachScreen';
 
 import {
-  applyDailyReminderSchedule,
-  loadNotificationSettings,
-  notificationsSupportedNative,
-  requestNotificationPermissionIfNeeded,
-  saveNotificationSettings,
-} from '../utils/notifications';
-import {
   habitsWithCustomLabels,
   saveBadHabitLabels,
   saveFitnessConfig,
   saveGoodHabitLabels,
 } from '../utils/preferences';
+
+// ==========================================================
+// REDESIGN STYLING CONSTANTS (DARK FANTASY RPG THEME)
+// ==========================================================
+const COLORS = {
+  bg: '#0a0a1a',
+  card: '#080816',
+  cardBorder: '#1d1d36',
+  gold: '#f5c842',
+  purple: '#7b4fd4',
+  red: '#e63946',
+  orange: '#ff6b35',
+  textPrimary: '#ffffff',
+  textSecondary: '#a0a0c0',
+  overlay: 'rgba(0,0,0,0.55)',
+};
+
+const IMG = {
+  hero:      { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/videos/1778589304496-539452240-1--nh-Hero-ch-nh--header-background-.jpg' },
+  exercise:  { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/videos/1778589312357-919274139-2-Card-Th--d-c--lightning-warrior-.jpg' },
+  habitGood: { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/videos/1778589314868-62737179-3-Card-Th-i-quen-t-t--purple-mist-monk-.jpg' },
+  habitBad:  { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/videos/1778589317068-714388556-4-Card-B--th-i-quen-x-u--armored-knight-.jpg' },
+  challenge: { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/videos/1778589319391-293230618-5--nh-V--t-qua-b-n-th-n--standing-in-light-.jpg' },
+};
 
 function mapFitnessActionData(data) {
   if (!data || typeof data !== 'object') return null;
@@ -109,6 +131,23 @@ function damage(profile, amount) {
   return { ...profile, hp };
 }
 
+function getDateKeyFromTimestamp(timestamp) {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function isPastDeathMidnight(profile) {
+  const debuffUntil = Number(profile?.deathDebuffUntil);
+  if (!Number.isFinite(debuffUntil)) return false;
+  const deathAt = debuffUntil - DEATH_DEBUFF_HOURS * 60 * 60 * 1000;
+  const deathDate = getDateKeyFromTimestamp(deathAt);
+  return !!deathDate && deathDate !== getTodayKey();
+}
+
 function getProfileStatLevel(profile, statName) {
   return profile?.stats?.[statName]?.level ?? 1;
 }
@@ -140,10 +179,22 @@ const PASSIVE_LEVEL_BONUSES = {
   50: 'Stat bonus tối đa x2',
 };
 
+// RPG Decorative Divider component (with center diamond/crest)
+function RPGDivider({ color }) {
+  return (
+    <View style={styles.dividerContainer}>
+      <View style={[styles.dividerLine, { backgroundColor: color }]} />
+      <View style={[styles.dividerDiamond, { borderColor: color }]}>
+        <View style={[styles.dividerDiamondInner, { backgroundColor: color }]} />
+      </View>
+      <View style={[styles.dividerLine, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
 export default function QuestBoardScreen() {
   const [state, setState] = useState(null);
   const [draftTask, setDraftTask] = useState('');
-  const [notifSettings, setNotifSettings] = useState(null);
   const [showStats, setShowStats] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAiCoach, setShowAiCoach] = useState(false);
@@ -153,45 +204,7 @@ export default function QuestBoardScreen() {
     lines: [],
     color: '#facc15',
   });
-  // Rollback: legacy toast state before SystemMessage migration.
-  // const [achievementToast, setAchievementToast] = useState(null);
   const insets = useSafeAreaInsets();
-
-  const flushNotifTimes = useCallback(() => {
-    setNotifSettings((prev) => {
-      const next = {
-        ...prev,
-        morningHour: Math.min(
-          23,
-          Math.max(0, Math.round(Number(prev.morningHour)) || 0)
-        ),
-        morningMinute: Math.min(
-          59,
-          Math.max(0, Math.round(Number(prev.morningMinute)) || 0)
-        ),
-        eveningHour: Math.min(
-          23,
-          Math.max(0, Math.round(Number(prev.eveningHour)) || 0)
-        ),
-        eveningMinute: Math.min(
-          59,
-          Math.max(0, Math.round(Number(prev.eveningMinute)) || 0)
-        ),
-      };
-      Promise.resolve().then(async () => {
-        await saveNotificationSettings(next);
-        await applyDailyReminderSchedule(next);
-      });
-      return next;
-    });
-  }, []);
-
-  // Rollback: legacy toast auto-hide before SystemMessage migration.
-  // useEffect(() => {
-  //   if (achievementToast == null) return undefined;
-  //   const id = setTimeout(() => setAchievementToast(null), 3000);
-  //   return () => clearTimeout(id);
-  // }, [achievementToast]);
 
   const showSystemMessage = useCallback((title, lines, color = '#facc15') => {
     console.log('[QuestBoard SystemMessage] showSystemMessage() ENTER');
@@ -220,7 +233,6 @@ export default function QuestBoardScreen() {
         const { newlyUnlocked, nextState } = await saveState(next);
         if (newlyUnlocked?.length) {
           const names = newlyUnlocked.map((a) => a.title).join(', ');
-          // Rollback: setAchievementToast(`🏅 Thành tích mới: ${names}!`);
           showSystemMessage('THÀNH TÍCH MỚI', [names], '#facc15');
           setState((prev) =>
             prev && nextState
@@ -248,6 +260,42 @@ export default function QuestBoardScreen() {
     [persist]
   );
 
+  const applyDeathIfNeeded = useCallback(
+    (profile, beforeHp) => {
+      if (beforeHp > 0 && isDead(profile)) {
+        queueMicrotask(() => {
+          showSystemMessage(
+            'NGƯƠI ĐÃ NGÃ XUỐNG',
+            [
+              'Streak bị xóa.',
+              'XP bị trừ 20%.',
+              'Hoàn thành quest để hồi sinh.',
+            ],
+            '#ef4444'
+          );
+        });
+        return applyDeath(profile);
+      }
+      return profile;
+    },
+    [showSystemMessage]
+  );
+
+  const handleRevive = useCallback(() => {
+    commit((s) => {
+      if (!isDead(s.profile)) return s;
+      const profile = revive(s.profile);
+      queueMicrotask(() => {
+        showSystemMessage(
+          'HỒI SINH',
+          ['30 HP được hồi.', 'Thương tích còn 24h.'],
+          '#f59e0b'
+        );
+      });
+      return { ...s, profile };
+    });
+  }, [commit, showSystemMessage]);
+
   const gainXp = useCallback((profile, rawXp) => {
     const beforeLevel = profile.level;
     const beforeTitle = getCharacterTitle(profile.level);
@@ -262,7 +310,7 @@ export default function QuestBoardScreen() {
     const afterTitle = getCharacterTitle(nextProfile.level);
     const passiveBonus = getPassiveBonus(nextProfile.level);
     const passiveLevel = [50, 30, 20, 10, 5].find(
-      (level) => profile.level < level && nextProfile.level >= level
+        (level) => profile.level < level && nextProfile.level >= level
     );
     nextProfile = {
       ...nextProfile,
@@ -274,42 +322,40 @@ export default function QuestBoardScreen() {
       scheduledXpMessage = true;
       queueMicrotask(() => {
         console.log(
-          '[QuestBoard SystemMessage] gainXp queueMicrotask: passive unlock → showSystemMessage'
+            '[QuestBoard SystemMessage] gainXp queueMicrotask: passive unlock → showSystemMessage'
         );
-        // Rollback: setAchievementToast({ type: 'passive', text: `⚡ Passive mới: ${PASSIVE_LEVEL_BONUSES[passiveLevel]}` });
         showSystemMessage(
-          'PASSIVE MỞ KHÓA',
-          [PASSIVE_LEVEL_BONUSES[passiveLevel]],
-          '#60a5fa'
+            'PASSIVE MỞ KHÓA',
+            [PASSIVE_LEVEL_BONUSES[passiveLevel]],
+            '#60a5fa'
         );
       });
     } else if (afterTitle !== beforeTitle) {
       scheduledXpMessage = true;
       queueMicrotask(() => {
         console.log(
-          '[QuestBoard SystemMessage] gainXp queueMicrotask: title change → showSystemMessage'
+            '[QuestBoard SystemMessage] gainXp queueMicrotask: title change → showSystemMessage'
         );
-        // Rollback: setAchievementToast({ type: 'title', text: `🎖️ Danh hiệu mới: ${afterTitle}!` });
         showSystemMessage('DANH HIỆU MỚI', [afterTitle], '#f59e0b');
       });
     } else if (afterLevel > beforeLevel) {
       scheduledXpMessage = true;
       queueMicrotask(() => {
         console.log(
-          '[QuestBoard SystemMessage] gainXp queueMicrotask: level up → showSystemMessage'
+            '[QuestBoard SystemMessage] gainXp queueMicrotask: level up → showSystemMessage'
         );
         showSystemMessage(
-          'CẤP ĐỘ TĂNG',
-          [
-            `Cấp độ: ${beforeLevel} → ${afterLevel}`,
-            `XP tiếp theo: ${xpToNextLevel(afterLevel)}`,
-          ],
-          '#facc15'
+            'CẤP ĐỘ TĂNG',
+            [
+              `Cấp độ: ${beforeLevel} → ${afterLevel}`,
+              `XP tiếp theo: ${xpToNextLevel(afterLevel)}`,
+            ],
+            '#facc15'
         );
       });
     } else {
       console.log(
-        '[QuestBoard SystemMessage] gainXp: no level/title/passive message (caller may show quest complete)'
+          '[QuestBoard SystemMessage] gainXp: no level/title/passive message (caller may show quest complete)'
       );
     }
     return { profile: nextProfile, scheduledXpMessage };
@@ -321,39 +367,37 @@ export default function QuestBoardScreen() {
     const afterLevel = getProfileStatLevel(profile, statName);
     const levelsGained = Math.max(0, afterLevel - beforeLevel);
     const milestoneLevel = Object.keys(STAT_MILESTONES[statName] ?? {})
-      .map(Number)
-      .find((level) => beforeLevel < level && afterLevel >= level);
+        .map(Number)
+        .find((level) => beforeLevel < level && afterLevel >= level);
     const milestoneBonus = getStatMilestoneBonus(profile.stats);
     const isFitnessX2 =
-      (statName === 'strength' && milestoneBonus.strengthFitnessX2) ||
-      (statName === 'endurance' && milestoneBonus.enduranceFitnessX2);
+        (statName === 'strength' && milestoneBonus.strengthFitnessX2) ||
+        (statName === 'endurance' && milestoneBonus.enduranceFitnessX2);
 
     if (levelsGained <= 0) {
       return { state: { ...s, profile }, scheduledStatMessage: false };
     }
 
     const fitnessConfig = applyStatLevelFitnessBonus(
-      s.fitnessConfig ?? normalizeFitnessConfig(null),
-      statName,
-      levelsGained,
-      isFitnessX2
+        s.fitnessConfig ?? normalizeFitnessConfig(null),
+        statName,
+        levelsGained,
+        isFitnessX2
     );
 
     queueMicrotask(() => {
       console.log(
-        '[QuestBoard SystemMessage] gainStat queueMicrotask → showSystemMessage',
-        { statName, afterLevel, milestoneLevel: milestoneLevel ?? null }
+          '[QuestBoard SystemMessage] gainStat queueMicrotask → showSystemMessage',
+          { statName, afterLevel, milestoneLevel: milestoneLevel ?? null }
       );
       if (milestoneLevel) {
         const desc = STAT_MILESTONES[statName][milestoneLevel].desc;
-        // Rollback: setAchievementToast({ type: 'milestone', text: `🌟 Milestone: ${desc}` });
         showSystemMessage('MILESTONE', [desc], '#34d399');
       } else {
-        // Rollback: setAchievementToast((prev) => prev?.type === 'title' || prev?.type === 'passive' || prev?.type === 'milestone' ? prev : buildStatLevelToast(statName, afterLevel));
         showSystemMessage(
-          'CHỈ SỐ TĂNG',
-          [`${STATS[statName]?.label ?? statName} Lv.${afterLevel}`],
-          STAT_COLORS[statName] ?? '#facc15'
+            'CHỈ SỐ TĂNG',
+            [`${STATS[statName]?.label ?? statName} Lv.${afterLevel}`],
+            STAT_COLORS[statName] ?? '#facc15'
         );
       }
       if (statName === 'strength' || statName === 'endurance') {
@@ -370,58 +414,62 @@ export default function QuestBoardScreen() {
   }, [showSystemMessage]);
 
   const handleAiCoachExchange = useCallback(
-    async ({ history, actions }) => {
-      let nextFc = null;
-      let nextGood = null;
-      let nextBad = null;
-      for (const a of actions || []) {
-        if (a?.type === 'update_fitness_config' && a.data) {
-          const mapped = mapFitnessActionData(a.data);
-          if (mapped) {
-            nextFc = await saveFitnessConfig(mapped);
+      async ({ history, actions }) => {
+        let nextFc = null;
+        let nextGood = null;
+        let nextBad = null;
+        for (const a of actions || []) {
+          if (a?.type === 'update_fitness_config' && a.data) {
+            const mapped = mapFitnessActionData(a.data);
+            if (mapped) {
+              nextFc = await saveFitnessConfig(mapped);
+            }
+          }
+          if (a?.type === 'update_habit_labels' && Array.isArray(a.data)) {
+            const n = normalizeGoodLabelsFromAi(a.data);
+            if (n) {
+              await saveGoodHabitLabels(n);
+              nextGood = n;
+            }
+          }
+          if (a?.type === 'update_bad_habit_labels' && Array.isArray(a.data)) {
+            const n = normalizeBadLabelsFromAi(a.data);
+            if (n) {
+              await saveBadHabitLabels(n);
+              nextBad = n;
+            }
           }
         }
-        if (a?.type === 'update_habit_labels' && Array.isArray(a.data)) {
-          const n = normalizeGoodLabelsFromAi(a.data);
-          if (n) {
-            await saveGoodHabitLabels(n);
-            nextGood = n;
+        commit((s) => {
+          let next = { ...s, aiCoachHistory: history };
+          if (nextFc) next = { ...next, fitnessConfig: nextFc };
+          if (nextGood) {
+            next = {
+              ...next,
+              goodHabitLabels: nextGood,
+              goodHabitIcons: GOOD_HABITS.map((h) => h.icon),
+            };
           }
-        }
-        if (a?.type === 'update_bad_habit_labels' && Array.isArray(a.data)) {
-          const n = normalizeBadLabelsFromAi(a.data);
-          if (n) {
-            await saveBadHabitLabels(n);
-            nextBad = n;
+          if (nextBad) {
+            next = {
+              ...next,
+              badHabitLabels: nextBad,
+              badHabitIcons: BAD_HABITS.map((h) => h.icon),
+            };
           }
-        }
-      }
-      commit((s) => {
-        let next = { ...s, aiCoachHistory: history };
-        if (nextFc) next = { ...next, fitnessConfig: nextFc };
-        if (nextGood) {
-          next = {
-            ...next,
-            goodHabitLabels: nextGood,
-            goodHabitIcons: GOOD_HABITS.map((h) => h.icon),
-          };
-        }
-        if (nextBad) {
-          next = {
-            ...next,
-            badHabitLabels: nextBad,
-            badHabitIcons: BAD_HABITS.map((h) => h.icon),
-          };
-        }
-        return next;
-      });
-    },
-    [commit]
+          return next;
+        });
+      },
+      [commit]
   );
 
   const hydrate = useCallback(async () => {
     let s = await loadState();
     const today = getTodayKey();
+    if (isDead(s.profile) && isPastDeathMidnight(s.profile)) {
+      s = { ...s, profile: revive(s.profile) };
+      persist(s);
+    }
     if (checkPenaltyNeeded(s.history, today) && !s.daily.penaltyQuest && !s.daily.penaltyHandled) {
       const pQuest = generatePenaltyQuest(today);
       s = { ...s, daily: { ...s.daily, penaltyQuest: pQuest } };
@@ -451,10 +499,15 @@ export default function QuestBoardScreen() {
 
   const handlePenaltySkip = () => {
     commit((s) => {
+      const beforeHp = s.profile.hp;
       let profile = damage(s.profile, 20);
-      queueMicrotask(() => {
+      const died = beforeHp > 0 && isDead(profile);
+      profile = applyDeathIfNeeded(profile, beforeHp);
+      if (!died) {
+        queueMicrotask(() => {
         showSystemMessage('HẬU QUẢ', ["Ngươi đã chọn con đường yếu đuối.", "-20 HP"], '#ef4444');
-      });
+        });
+      }
       const daily = { ...s.daily, penaltyHandled: true };
       delete daily.penaltyQuest;
       return { ...s, profile, daily };
@@ -464,13 +517,6 @@ export default function QuestBoardScreen() {
   useEffect(() => {
     hydrate();
   }, [hydrate]);
-
-  useEffect(() => {
-    (async () => {
-      const n = await loadNotificationSettings();
-      setNotifSettings(n);
-    })();
-  }, []);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => {
@@ -514,8 +560,8 @@ export default function QuestBoardScreen() {
       profile = advanceStreak(profile);
       const beforeLevel = profile.level;
       const { profile: afterXp, scheduledXpMessage } = gainXp(
-        profile,
-        WORK_TASK_XP
+          profile,
+          WORK_TASK_XP
       );
       profile = afterXp;
       console.log('[QuestBoard SystemMessage] toggleWorkTask after gainXp', {
@@ -528,18 +574,18 @@ export default function QuestBoardScreen() {
       profile = heal(profile, getPassiveBonus(profile.level).healPerAction);
 
       const workTasks = s.daily.workTasks.map((w) =>
-        w.id === id ? { ...w, done: true } : w
+          w.id === id ? { ...w, done: true } : w
       );
 
       if (!scheduledXpMessage) {
         queueMicrotask(() => {
           console.log(
-            '[QuestBoard SystemMessage] toggleWorkTask queueMicrotask: quest complete (no level toast) → showSystemMessage'
+              '[QuestBoard SystemMessage] toggleWorkTask queueMicrotask: quest complete (no level toast) → showSystemMessage'
           );
           showSystemMessage(
-            'CÔNG VIỆC HOÀN THÀNH',
-            [`📜 ${task.text}`, `+${WORK_TASK_XP} XP`],
-            '#34d399'
+              'CÔNG VIỆC HOÀN THÀNH',
+              [`📜 ${task.text}`, `+${WORK_TASK_XP} XP`],
+              '#34d399'
           );
         });
       }
@@ -557,8 +603,8 @@ export default function QuestBoardScreen() {
       profile = advanceStreak(profile);
       const beforeLevel = profile.level;
       const { profile: afterXp, scheduledXpMessage } = gainXp(
-        profile,
-        EXERCISE_FULL_XP / 3
+          profile,
+          EXERCISE_FULL_XP / 3
       );
       profile = afterXp;
       console.log('[QuestBoard SystemMessage] toggleExercise after gainXp', {
@@ -590,14 +636,14 @@ export default function QuestBoardScreen() {
       if (!scheduledXpMessage && !scheduledStatMessage) {
         queueMicrotask(() => {
           console.log(
-            '[QuestBoard SystemMessage] toggleExercise queueMicrotask: exercise complete (no xp/stat toast) → showSystemMessage'
+              '[QuestBoard SystemMessage] toggleExercise queueMicrotask: exercise complete (no xp/stat toast) → showSystemMessage'
           );
           const labels = { run: 'Chạy bộ', push: 'Hít đất', sit: 'Gập bụng' };
           const xpPart = Math.floor(EXERCISE_FULL_XP / 3);
           showSystemMessage(
-            'THỂ DỤC HOÀN THÀNH',
-            [labels[key] ?? key, `+${xpPart} XP`],
-            '#22c55e'
+              'THỂ DỤC HOÀN THÀNH',
+              [labels[key] ?? key, `+${xpPart} XP`],
+              '#22c55e'
           );
         });
       }
@@ -646,7 +692,9 @@ export default function QuestBoardScreen() {
         profile = heal(profile, getPassiveBonus(profile.level).healPerAction);
         daily.badHabits[habitId] = 'ok';
       } else if (outcome === 'fail') {
+        const beforeHp = profile.hp;
         profile = damage(profile, milestoneBonus.badHabitDamage);
+        profile = applyDeathIfNeeded(profile, beforeHp);
         daily.badHabits[habitId] = 'fail';
       }
 
@@ -665,14 +713,14 @@ export default function QuestBoardScreen() {
       const milestoneBonus = getStatMilestoneBonus(profile.stats);
       profile = advanceStreak(profile);
       const { profile: afterXp } = gainXp(
-        profile,
-        item.xp * milestoneBonus.overcomeXpMult
+          profile,
+          item.xp * milestoneBonus.overcomeXpMult
       );
       profile = afterXp;
       profile = heal(profile, getPassiveBonus(profile.level).healPerAction);
 
       const overcome = s.daily.overcome.map((q, i) =>
-        i === index ? { ...q, done: true } : q
+          i === index ? { ...q, done: true } : q
       );
       const next = { ...s, profile, daily: { ...s.daily, overcome } };
       return gainStat(next, 'wisdom', 5).state;
@@ -681,23 +729,23 @@ export default function QuestBoardScreen() {
 
   if (!state) {
     return (
-      <SafeAreaView style={styles.flex} edges={['top']}>
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" color="#d4af37" />
-          <Text style={styles.loadingText}>Đang tải bảng nhiệm vụ…</Text>
-        </View>
-      </SafeAreaView>
+        <SafeAreaView style={styles.flex} edges={['top']}>
+          <View style={styles.loading}>
+            <ActivityIndicator size="large" color={COLORS.gold} />
+            <Text style={styles.loadingText}>Đang tải bảng nhiệm vụ…</Text>
+          </View>
+        </SafeAreaView>
     );
   }
 
   const systemMessage = (
-    <SystemMessage
-      visible={systemMsg.visible}
-      title={systemMsg.title}
-      lines={systemMsg.lines}
-      color={systemMsg.color}
-      onDone={() => setSystemMsg((prev) => ({ ...prev, visible: false }))}
-    />
+      <SystemMessage
+          visible={systemMsg.visible}
+          title={systemMsg.title}
+          lines={systemMsg.lines}
+          color={systemMsg.color}
+          onDone={() => setSystemMsg((prev) => ({ ...prev, visible: false }))}
+      />
   );
   console.log('[QuestBoard SystemMessage] render SystemMessage props', {
     visible: systemMsg.visible,
@@ -706,84 +754,56 @@ export default function QuestBoardScreen() {
     color: systemMsg.color,
   });
 
-  // Rollback: legacy toast banner before SystemMessage migration.
-  // const toastTop =
-  //   showStats || showSettings || showAiCoach ? insets.top + 8 : 8;
-  // const achievementBanner =
-  //   achievementToast != null ? (
-  //     <View
-  //       style={[
-  //         styles.achToastWrap,
-  //         achievementToast?.type === 'title' && styles.titleToastWrap,
-  //         achievementToast?.type === 'passive' && styles.passiveToastWrap,
-  //         achievementToast?.type === 'milestone' && styles.milestoneToastWrap,
-  //         { top: toastTop },
-  //       ]}
-  //       pointerEvents="none"
-  //     >
-  //       <Text
-  //         style={[
-  //           styles.achToastText,
-  //           achievementToast?.type === 'title' && styles.titleToastText,
-  //           achievementToast?.type === 'passive' && styles.passiveToastText,
-  //           achievementToast?.type === 'milestone' && styles.milestoneToastText,
-  //         ]}
-  //       >
-  //         {getToastText(achievementToast)}
-  //       </Text>
-  //     </View>
-  //   ) : null;
-
   if (showSettings) {
     return (
-      <View style={styles.flex}>
-        <SettingsScreen
-          onClose={() => setShowSettings(false)}
-          state={state}
-          fitnessConfig={state.fitnessConfig}
-          goodHabitLabels={state.goodHabitLabels}
-          badHabitLabels={state.badHabitLabels}
-          goodHabitIcons={state.goodHabitIcons}
-          badHabitIcons={state.badHabitIcons}
-          onApplied={hydrate}
-        />
-        {systemMessage}
-      </View>
+        <View style={styles.flex}>
+          <SettingsScreen
+              onClose={() => setShowSettings(false)}
+              state={state}
+              fitnessConfig={state.fitnessConfig}
+              goodHabitLabels={state.goodHabitLabels}
+              badHabitLabels={state.badHabitLabels}
+              goodHabitIcons={state.goodHabitIcons}
+              badHabitIcons={state.badHabitIcons}
+              onApplied={hydrate}
+          />
+          {systemMessage}
+        </View>
     );
   }
 
   if (showAiCoach) {
     return (
-      <View style={styles.flex}>
-        <AiCoachScreen
-          state={state}
-          onClose={() => setShowAiCoach(false)}
-          onAfterExchange={handleAiCoachExchange}
-        />
-        {systemMessage}
-      </View>
+        <View style={styles.flex}>
+          <AiCoachScreen
+              state={state}
+              onClose={() => setShowAiCoach(false)}
+              onAfterExchange={handleAiCoachExchange}
+          />
+          {systemMessage}
+        </View>
     );
   }
 
   if (showStats) {
     return (
-      <View style={styles.flex}>
-        <StatsScreen state={state} onClose={() => setShowStats(false)} />
-        {systemMessage}
-      </View>
+        <View style={styles.flex}>
+          <StatsScreen state={state} onClose={() => setShowStats(false)} />
+          {systemMessage}
+        </View>
     );
   }
 
   const { profile, daily } = state;
   const goodHabitsUi = habitsWithCustomLabels(
-    GOOD_HABITS,
-    state.goodHabitLabels,
-    state.goodHabitIcons
+      GOOD_HABITS,
+      state.goodHabitLabels,
+      state.goodHabitIcons
   );
   const badHabitsUi = habitsWithCustomLabels(
-    BAD_HABITS,
-    state.badHabitLabels,
-    state.badHabitIcons
+      BAD_HABITS,
+      state.badHabitLabels,
+      state.badHabitIcons
   );
   const xpCap = xpToNextLevel(profile.level);
   const streakM = streakMultiplier(profile.streak);
@@ -791,813 +811,990 @@ export default function QuestBoardScreen() {
   const currentMilestoneBonus = getStatMilestoneBonus(profile.stats);
   const statBonus = getStatBonus(profile);
   const streakLabel =
-    profile.streak >= 7
-      ? '×1.5 XP'
-      : profile.streak >= 3
-        ? '×1.2 XP'
-        : '×1 XP';
+      profile.streak >= 7
+          ? '×1.5 XP'
+          : profile.streak >= 3
+              ? '×1.2 XP'
+              : '×1 XP';
 
   const xpBonusLabel =
-    statBonus > 1
-      ? `${streakLabel} · stat ×${statBonus.toFixed(2)}`
-      : streakLabel;
+      statBonus > 1
+          ? `${streakLabel} · stat ×${statBonus.toFixed(2)}`
+          : streakLabel;
 
   const characterStats = normalizeStats(profile.stats);
   const ex = daily.exercise;
+  const deathDebuffActive = hasDeathDebuff(profile);
+  const hpLabel = deathDebuffActive ? 'Sinh lực (HP) 🩹' : 'Sinh lực (HP)';
 
   return (
-    <SafeAreaView style={styles.flex} edges={['top']}>
-      <KeyboardAvoidingView
-        style={styles.flexInner}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
+      <SafeAreaView style={styles.flex} edges={['top']}>
+        <KeyboardAvoidingView
+            style={styles.flexInner}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-        <View style={styles.hero}>
-          <View style={styles.heroTop}>
-            <View style={styles.heroTexts}>
-              <Text style={styles.brand}>⚔️ QuestBoard</Text>
-              <Text style={styles.tagline}>
-                Nhiệm vụ hằng ngày · Phong cách RPG
-              </Text>
-            </View>
-            <View style={styles.heroActions}>
-              <Pressable
-                onPress={() => {
-                  setShowStats(false);
-                  setShowAiCoach(false);
-                  setShowSettings(true);
-                }}
-                hitSlop={14}
-                style={styles.heroIconTap}
-              >
-                <Text style={styles.heroIcon}>⚙️</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setShowStats(false);
-                  setShowSettings(false);
-                  setShowAiCoach(true);
-                }}
-                hitSlop={14}
-                style={styles.heroIconTap}
-              >
-                <Text style={styles.heroIcon}>🤖</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setShowSettings(false);
-                  setShowAiCoach(false);
-                  setShowStats(true);
-                }}
-                hitSlop={14}
-                style={styles.heroIconTap}
-              >
-                <Text style={styles.heroIcon}>📊</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.statsCard}>
-          <View style={styles.statsTop}>
-            <View>
-              <Text style={styles.levelLabel}>Cấp độ</Text>
-              <Text style={styles.levelNum}>{profile.level}</Text>
-              <Text
-                style={styles.levelTitle}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {getCharacterTitle(profile.level)}
-              </Text>
-            </View>
-            <View style={styles.streakBadge}>
-              <Text style={styles.streakIcon}>🔥</Text>
-              <View>
-                <Text style={styles.streakNum}>{profile.streak} ngày</Text>
-                <Text style={styles.streakMeta}>
-                  Chuỗi · {xpBonusLabel}
-                </Text>
-              </View>
-            </View>
-          </View>
-          <BarMeter
-            label="Kinh nghiệm"
-            value={profile.xpInLevel}
-            max={xpCap}
-            color="#d4af37"
-            trackColor="#2a2618"
-            rightLabel={`${profile.xpInLevel}/${xpCap} XP`}
-          />
-          <BarMeter
-            label="Sinh lực (HP)"
-            value={profile.hp}
-            max={currentPassiveBonus.maxHp}
-            color="#4e9f6d"
-            trackColor="#1a2820"
-            rightLabel={`${Math.round(profile.hp)}/${
-              currentPassiveBonus.maxHp
-            } HP`}
-          />
-          <Text style={styles.diffHint}>
-            Độ khó thể dục hôm nay: ×
-            {profile.difficultyMult.toFixed(4)} (+0.01%/ngày)
-          </Text>
-        </View>
-
-        <View style={styles.characterStatsSection}>
-          <Text style={styles.characterStatsTitle}>Chỉ số nhân vật</Text>
-          <View style={styles.characterStatsGrid}>
-            {STAT_KEYS.map((key, index) => {
-              const def = STATS[key];
-              const stat = characterStats[key];
-              const cap = expToNextStatLevel(stat.level);
-              const pct = Math.min(100, (stat.xpInLevel / cap) * 100);
-              const color = STAT_COLORS[key];
-              const fullWidth = index === STAT_KEYS.length - 1;
-
-              return (
-                <View
-                  key={key}
-                  style={[
-                    styles.characterStatTile,
-                    fullWidth && styles.characterStatTileFull,
-                  ]}
-                >
-                  <View style={styles.characterStatTop}>
-                    <Text style={styles.characterStatName}>
-                      {def.icon} {def.label}
-                    </Text>
-                    <Text style={[styles.characterStatLevel, { color }]}>
-                      Lv.{stat.level}
-                    </Text>
-                  </View>
-                  <View style={styles.characterStatTrack}>
-                    <View
-                      style={[
-                        styles.characterStatFill,
-                        { width: `${pct}%`, backgroundColor: color },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.characterStatXp}>
-                    {stat.xpInLevel} / {cap} XP
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-
-        {daily.penaltyQuest ? (
-          <View style={styles.penaltySection}>
-            <Text style={styles.penaltyTitle}>⚠️ NHIỆM VỤ PHẠT</Text>
-            <Text style={styles.penaltyText}>{daily.penaltyQuest.text}</Text>
-            <View style={styles.penaltyActions}>
-              <Pressable style={styles.penaltyBtnComplete} onPress={handlePenaltyComplete}>
-                <Text style={styles.penaltyBtnText}>HOÀN THÀNH</Text>
-              </Pressable>
-              <Pressable style={styles.penaltyBtnSkip} onPress={handlePenaltySkip}>
-                <Text style={styles.penaltyBtnText}>BỎ QUA (mất 20 HP)</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-
-        <SectionCard
-          title="Công việc"
-          subtitle={`+${WORK_TASK_XP} XP mỗi nhiệm vụ · hệ số ${streakM}`}
-          icon="📜"
-        >
-          <View style={styles.inputRow}>
-            <TextInput
-              value={draftTask}
-              onChangeText={setDraftTask}
-              placeholder="Nhập nhiệm vụ hôm nay..."
-              placeholderTextColor="#5c5766"
-              style={styles.input}
-              onSubmitEditing={addWorkTask}
-            />
-            <Pressable style={styles.addBtn} onPress={addWorkTask}>
-              <Text style={styles.addBtnText}>Thêm</Text>
-            </Pressable>
-          </View>
-          {daily.workTasks.length === 0 ? (
-            <Text style={styles.empty}>Chưa có nhiệm vụ — thêm vài quest!</Text>
-          ) : null}
-          {daily.workTasks.map((w) => (
-            <View key={w.id} style={styles.taskRow}>
-              <View style={styles.taskCheck}>
-                <CheckRow
-                  label={w.text}
-                  checked={w.done}
-                  disabled={w.done}
-                  onToggle={() => toggleWorkTask(w.id)}
-                />
-              </View>
-              <Pressable
-                onPress={() => removeWorkTask(w.id)}
-                hitSlop={8}
-                style={styles.trash}
-              >
-                <Text style={styles.trashText}>✕</Text>
-              </Pressable>
-            </View>
-          ))}
-        </SectionCard>
-
-        <SectionCard
-          title="Thể dục (random)"
-          subtitle="Hoàn thành từng hạng mục để nhận XP"
-          icon="🏃"
-        >
-          <CheckRow
-            label={`Chạy bộ · ${ex.runKm} km`}
-            checked={ex.runDone}
-            disabled={ex.runDone}
-            onToggle={() => toggleExercise('run')}
-          />
-          <CheckRow
-            label={`Hít đất · ${ex.pushups} cái`}
-            checked={ex.pushDone}
-            disabled={ex.pushDone}
-            onToggle={() => toggleExercise('push')}
-          />
-          <CheckRow
-            label={`Gập bụng · ${ex.situps} cái`}
-            checked={ex.sitDone}
-            disabled={ex.sitDone}
-            onToggle={() => toggleExercise('sit')}
-          />
-          <Text style={styles.smallNote}>
-            Mỗi phần: +{Math.floor(EXERCISE_FULL_XP / 3)} XP cơ bản (× chuỗi)
-          </Text>
-        </SectionCard>
-
-        <SectionCard
-          title="Thói quen tốt"
-          subtitle="Chỉ tick khi bạn đã thực hiện"
-          icon="✨"
-        >
-          {goodHabitsUi.map((h) => (
-            <CheckRow
-              key={h.id}
-              label={`${h.icon}  ${h.label}`}
-              checked={daily.goodHabits[h.id]}
-              disabled={daily.goodHabits[h.id]}
-              onToggle={() => toggleGood(h.id)}
-            />
-          ))}
-          <Text style={styles.smallNote}>
-            Mỗi thói quen: +{GOOD_HABIT_XP} XP · +{currentPassiveBonus.healPerAction} HP
-          </Text>
-        </SectionCard>
-
-        <SectionCard
-          title="Bỏ thói quen xấu"
-          subtitle="Giữ vững: XP · Trượt: trừ HP"
-          icon="🛡️"
-        >
-          {badHabitsUi.map((h) => {
-            const v = daily.badHabits[h.id];
-            const locked = v != null;
-            return (
-              <View key={h.id} style={styles.badBlock}>
-                <Text style={styles.badTitle}>
-                  {h.icon} {h.label}
-                </Text>
-                <View style={styles.badActions}>
-                  <Pressable
-                    onPress={() => setBadHabit(h.id, 'ok')}
-                    disabled={locked}
-                    style={({ pressed }) => [
-                      styles.pill,
-                      styles.pillOk,
-                      v === 'ok' && styles.pillActiveOk,
-                      locked && v !== 'ok' && styles.pillDisabled,
-                      pressed && !locked && styles.pillPressed,
-                    ]}
-                  >
-                    <Text style={styles.pillText}>Đã tránh</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setBadHabit(h.id, 'fail')}
-                    disabled={locked}
-                    style={({ pressed }) => [
-                      styles.pill,
-                      styles.pillBad,
-                      v === 'fail' && styles.pillActiveBad,
-                      locked && v !== 'fail' && styles.pillDisabled,
-                      pressed && !locked && styles.pillPressed,
-                    ]}
-                  >
-                    <Text style={styles.pillText}>Thất bại</Text>
-                  </Pressable>
-                </View>
-              </View>
-            );
-          })}
-          <Text style={styles.smallNote}>
-            Tránh thành công: +{currentMilestoneBonus.badHabitOkXp} XP · Thất bại: −
-            {currentMilestoneBonus.badHabitDamage} HP
-          </Text>
-        </SectionCard>
-
-        <SectionCard
-          title="Vượt qua bản thân"
-          subtitle="Quest tùy chọn — XP cao hơn"
-          icon="🐉"
-        >
-          {daily.overcome.map((q, idx) => (
-            <CheckRow
-              key={q.id}
-              label={`${q.title}  (+${q.xp} XP)`}
-              checked={q.done}
-              disabled={q.done}
-              onToggle={() => toggleOvercome(idx)}
-            />
-          ))}
-        </SectionCard>
-
-        {notifSettings ? (
-          <SectionCard
-            title="Nhắc nhở hằng ngày"
-            subtitle="Local notification — không cần server"
-            icon="🔔"
+          <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={styles.content}
+              keyboardShouldPersistTaps="handled"
           >
-            {!notificationsSupportedNative() ? (
-              <Text style={styles.smallNote}>
-                Thông báo định kỳ chỉ hỗ trợ trên app iOS/Android.
-              </Text>
-            ) : (
-              <>
-                <View style={styles.notifRow}>
-                  <View style={styles.notifRowText}>
-                    <Text style={styles.notifLabel}>Bật nhắc nhở</Text>
-                    <Text style={styles.notifHint}>
-                      Sáng & tối mỗi ngày (giờ máy)
-                    </Text>
+            {/* [1] HEADER */}
+            <ImageBackground source={IMG.hero} style={styles.headerBg} resizeMode="cover">
+              <View style={styles.headerOverlay}>
+                <View style={styles.headerTop}>
+                  <View style={styles.heroActions}>
+                    <Pressable
+                        onPress={() => {
+                          setShowStats(false);
+                          setShowAiCoach(false);
+                          setShowSettings(true);
+                        }}
+                        hitSlop={14}
+                        style={styles.heroIconBtn}
+                    >
+                      <Text style={styles.heroIcon}>⚙️</Text>
+                      <Text style={styles.heroIconLabel}>CÀI ĐẶT</Text>
+                    </Pressable>
+                    <Pressable
+                        onPress={() => {
+                          setShowStats(false);
+                          setShowSettings(false);
+                          setShowAiCoach(true);
+                        }}
+                        hitSlop={14}
+                        style={styles.heroIconBtn}
+                    >
+                      <Text style={styles.heroIcon}>🤖</Text>
+                      <Text style={styles.heroIconLabel}>BOT</Text>
+                    </Pressable>
+                    <Pressable
+                        onPress={() => {
+                          setShowSettings(false);
+                          setShowAiCoach(false);
+                          setShowStats(true);
+                        }}
+                        hitSlop={14}
+                        style={styles.heroIconBtn}
+                    >
+                      <Text style={styles.heroIcon}>📊</Text>
+                      <Text style={styles.heroIconLabel}>THỐNG KÊ</Text>
+                    </Pressable>
                   </View>
-                  <Switch
-                    value={notifSettings.enabled}
-                    onValueChange={async (v) => {
-                      if (v) {
-                        const ok = await requestNotificationPermissionIfNeeded();
-                        if (!ok) {
-                          Alert.alert(
-                            'Cần quyền thông báo',
-                            'Hãy bật quyền trong Cài đặt hệ thống để nhận nhắc quest hằng ngày.'
-                          );
-                          return;
-                        }
-                      }
-                      setNotifSettings((prev) => {
-                        const next = { ...prev, enabled: v };
-                        Promise.resolve().then(async () => {
-                          await saveNotificationSettings(next);
-                          await applyDailyReminderSchedule(next);
-                        });
-                        return next;
-                      });
-                    }}
-                    thumbColor={
-                      notifSettings.enabled ? '#d4af37' : '#5c5766'
-                    }
-                    trackColor={{
-                      false: '#2a2a38',
-                      true: '#3d3520',
-                    }}
+                </View>
+
+                <View style={styles.headerBottom}>
+                  <Text style={styles.brand}>⚔️ QuestBoard</Text>
+                  <Text style={styles.tagline}>
+                    Nhiệm vụ hằng ngày · Phong cách RPG
+                  </Text>
+                </View>
+              </View>
+            </ImageBackground>
+
+            {/* [2] LEVEL CARD + STREAK BADGE */}
+            <View style={styles.levelStreakRow}>
+              {/* Level Card (Bên trái) */}
+              <View style={styles.levelCard}>
+                <Text style={styles.levelLabel}>CẤP ĐỘ</Text>
+                <Text style={styles.levelNum}>{profile.level}</Text>
+                <Text
+                    style={styles.levelTitle}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                >
+                  {getCharacterTitle(profile.level).toUpperCase()}
+                </Text>
+
+                <View style={styles.levelBars}>
+                  <BarMeter
+                      label="Kinh nghiệm"
+                      value={profile.xpInLevel}
+                      max={xpCap}
+                      color={COLORS.gold}
+                      trackColor="#2a2618"
+                      rightLabel={`${profile.xpInLevel}/${xpCap} XP`}
                   />
+                  <BarMeter
+                      label={hpLabel}
+                      value={profile.hp}
+                      max={currentPassiveBonus.maxHp}
+                      color={COLORS.red}
+                      trackColor="#1a2820"
+                      rightLabel={`${Math.round(profile.hp)}/${currentPassiveBonus.maxHp} HP`}
+                  />
+                  {isDead(profile) ? (
+                    <Pressable
+                        style={styles.reviveBtn}
+                        onPress={handleRevive}
+                    >
+                      <Text style={styles.reviveBtnText}>ĐỨNG DẬY</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
 
-                <View style={styles.timeBlock}>
-                  <Text style={styles.timeBlockTitle}>Buổi sáng</Text>
-                  <Text style={styles.timeBlockSub}>
-                    ⚔️ Quest hôm nay đang chờ bạn!
-                  </Text>
-                  <View style={styles.timeInputs}>
-                    <TextInput
-                      editable={notifSettings.enabled}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                      value={String(notifSettings.morningHour)}
-                      onChangeText={(t) => {
-                        const n = Number(String(t).replace(/\D/g, '') || 0);
-                        setNotifSettings((p) => ({
-                          ...p,
-                          morningHour: Math.min(23, Math.max(0, n)),
-                        }));
-                      }}
-                      onBlur={flushNotifTimes}
-                      style={[styles.timeField, !notifSettings.enabled && styles.timeFieldDisabled]}
-                    />
-                    <Text style={styles.timeSep}>:</Text>
-                    <TextInput
-                      editable={notifSettings.enabled}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                      value={String(notifSettings.morningMinute)}
-                      onChangeText={(t) => {
-                        const n = Number(String(t).replace(/\D/g, '') || 0);
-                        setNotifSettings((p) => ({
-                          ...p,
-                          morningMinute: Math.min(59, Math.max(0, n)),
-                        }));
-                      }}
-                      onBlur={flushNotifTimes}
-                      style={[styles.timeField, !notifSettings.enabled && styles.timeFieldDisabled]}
-                    />
+                <Text style={styles.diffHint}>
+                  Độ khó thể dục hôm nay: ×{profile.difficultyMult.toFixed(4)} (+0.01%/ngày)
+                </Text>
+              </View>
+
+              {/* Streak Card (Bên phải) */}
+              <View style={styles.streakCard}>
+                <Text style={styles.streakEmoji}>🔥</Text>
+                <Text style={styles.streakNum}>{profile.streak}</Text>
+                <Text style={styles.streakDayText}>NGÀY CHUỖI</Text>
+                <Text style={styles.streakMultiplierText}>
+                  Hệ số: {xpBonusLabel}
+                </Text>
+              </View>
+            </View>
+
+            {/* Nhiệm vụ phạt */}
+            {daily.penaltyQuest ? (
+                <View style={styles.penaltySection}>
+                  <Text style={styles.penaltyTitle}>⚠️ NHIỆM VỤ PHẠT</Text>
+                  <Text style={styles.penaltyText}>{daily.penaltyQuest.text}</Text>
+                  <View style={styles.penaltyActions}>
+                    <Pressable style={styles.penaltyBtnComplete} onPress={handlePenaltyComplete}>
+                      <Text style={styles.penaltyBtnText}>HOÀN THÀNH</Text>
+                    </Pressable>
+                    <Pressable style={styles.penaltyBtnSkip} onPress={handlePenaltySkip}>
+                      <Text style={styles.penaltyBtnText}>BỎ QUA (-20 HP)</Text>
+                    </Pressable>
                   </View>
                 </View>
+            ) : null}
 
-                <View style={styles.timeBlock}>
-                  <Text style={styles.timeBlockTitle}>Buổi tối</Text>
-                  <Text style={styles.timeBlockSub}>
-                    🔥 Đừng quên hoàn thành quest trước khi ngủ!
+            {/* [3] CHỈ SỐ NHÂN VẬT (FULL-WIDTH CARD) */}
+            <View style={styles.statsWorkFullRow}>
+              <View style={styles.genericCardFull}>
+                <Text style={styles.statsTitleDecoration}>─── CHỈ SỐ NHÂN VẬT ───</Text>
+                <View style={styles.statsContainerVertical}>
+                  {STAT_KEYS.map((key) => {
+                    const def = STATS[key];
+                    const stat = characterStats[key];
+                    const cap = expToNextStatLevel(stat.level);
+                    const pct = Math.min(100, (stat.xpInLevel / cap) * 100);
+
+                    // Full Capitalized Label Mapping (strength / endurance / spirit / discipline / wisdom)
+                    let displayLabel = def.label;
+                    if (key === 'strength') displayLabel = 'SỨC MẠNH';
+                    else if (key === 'endurance') displayLabel = 'THỂ LỰC';
+                    else if (key === 'spirit') displayLabel = 'TINH THẦN';
+                    else if (key === 'discipline') displayLabel = 'KỶ LUẬT';
+                    else if (key === 'wisdom') displayLabel = 'TRÍ TUỆ';
+
+                    return (
+                        <View key={key} style={styles.statRow}>
+                          <Text style={styles.statRowLabel} numberOfLines={1}>
+                            {def.icon} {displayLabel}
+                          </Text>
+                          <View style={styles.statRowBarTrack}>
+                            <View style={[styles.statRowBarFill, { width: `${pct}%`, backgroundColor: STAT_COLORS[key] || COLORS.gold }]} />
+                          </View>
+                          <View style={styles.statRowRight}>
+                            <Text style={styles.statRowLevel}>Lv.{stat.level}</Text>
+                            <Text style={styles.statRowXp}>{stat.xpInLevel}/{cap} XP</Text>
+                          </View>
+                        </View>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+
+            {/* [3.5] CÔNG VIỆC (FULL-WIDTH CARD) */}
+            <View style={styles.statsWorkFullRow}>
+              <View style={styles.genericCardFull}>
+                <View style={styles.workHeaderFull}>
+                  <Text style={styles.workTitleFull}>CÔNG VIỆC 📜</Text>
+                  <Text style={styles.workSubtitleFull}>
+                    +{WORK_TASK_XP} XP · hệ số {streakM}
                   </Text>
-                  <View style={styles.timeInputs}>
-                    <TextInput
-                      editable={notifSettings.enabled}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                      value={String(notifSettings.eveningHour)}
-                      onChangeText={(t) => {
-                        const n = Number(String(t).replace(/\D/g, '') || 0);
-                        setNotifSettings((p) => ({
-                          ...p,
-                          eveningHour: Math.min(23, Math.max(0, n)),
-                        }));
-                      }}
-                      onBlur={flushNotifTimes}
-                      style={[styles.timeField, !notifSettings.enabled && styles.timeFieldDisabled]}
-                    />
-                    <Text style={styles.timeSep}>:</Text>
-                    <TextInput
-                      editable={notifSettings.enabled}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                      value={String(notifSettings.eveningMinute)}
-                      onChangeText={(t) => {
-                        const n = Number(String(t).replace(/\D/g, '') || 0);
-                        setNotifSettings((p) => ({
-                          ...p,
-                          eveningMinute: Math.min(59, Math.max(0, n)),
-                        }));
-                      }}
-                      onBlur={flushNotifTimes}
-                      style={[styles.timeField, !notifSettings.enabled && styles.timeFieldDisabled]}
-                    />
+                </View>
+
+                <View style={styles.workInputRowFull}>
+                  <TextInput
+                      value={draftTask}
+                      onChangeText={setDraftTask}
+                      placeholder="Nhập nhiệm vụ hôm nay..."
+                      placeholderTextColor={COLORS.textSecondary}
+                      style={styles.workInputFull}
+                      onSubmitEditing={addWorkTask}
+                  />
+                  <Pressable style={styles.workAddBtnFull} onPress={addWorkTask}>
+                    <Text style={styles.workAddBtnTextFull}>THÊM NHIỆM VỤ</Text>
+                  </Pressable>
+                </View>
+
+                {daily.workTasks.length === 0 ? (
+                    <Text style={styles.emptyFull}>Chưa có quest nào — thêm ngay!</Text>
+                ) : null}
+
+                <ScrollView style={styles.workListScrollFull}>
+                  {daily.workTasks.map((w) => (
+                      <View key={w.id} style={styles.taskRowFull}>
+                        <View style={styles.taskCheckFull}>
+                          <CheckRow
+                              label={<Text style={styles.taskCheckLabelFull}>{w.text}</Text>}
+                              checked={w.done}
+                              disabled={w.done}
+                              onToggle={() => toggleWorkTask(w.id)}
+                          />
+                        </View>
+                        <Pressable
+                            onPress={() => removeWorkTask(w.id)}
+                            hitSlop={8}
+                            style={styles.trashFull}
+                        >
+                          <Text style={styles.trashTextFull}>✕</Text>
+                        </Pressable>
+                      </View>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+
+            {/* [4] ROW 4 CARD DỌC FULL-WIDTH CHỮA BLENDING NGHỆ THUẬT */}
+            <View style={styles.colThreeCards}>
+              {/* Thẻ 1: Thể dục */}
+              <View style={[styles.cardThreeContainerFull, { borderColor: '#1d1d36' }]}>
+                {/* Right Image */}
+                <Image source={IMG.exercise} style={styles.cardRightImage} />
+                {/* Blend Gradient Overlay */}
+                <View style={styles.blendContainer}>
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.95 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.85 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.75 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.65 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.55 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.45 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.35 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.25 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.15 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.05 }} />
+                </View>
+
+                {/* Left Content */}
+                <View style={styles.cardLeftContent}>
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.cardTitle}>🏃 THỂ DỤC (RANDOM)</Text>
+                    <Text style={styles.cardSubtitle}>Hoàn thành từng hạng mục để nhận XP</Text>
+                  </View>
+
+                  <View style={styles.cardContent}>
+                    <View style={styles.checkRowWrapper}>
+                      <CheckRow
+                          label={<Text style={styles.cardLabel} numberOfLines={1}>{`👟  Chạy bộ · ${ex.runKm} km`}</Text>}
+                          checked={ex.runDone}
+                          disabled={ex.runDone}
+                          onToggle={() => toggleExercise('run')}
+                      />
+                    </View>
+                    <View style={styles.checkRowWrapper}>
+                      <CheckRow
+                          label={<Text style={styles.cardLabel} numberOfLines={1}>{`🏋️  Hít đất · ${ex.pushups} cái`}</Text>}
+                          checked={ex.pushDone}
+                          disabled={ex.pushDone}
+                          onToggle={() => toggleExercise('push')}
+                      />
+                    </View>
+                    <View style={styles.checkRowWrapper}>
+                      <CheckRow
+                          label={<Text style={styles.cardLabel} numberOfLines={1}>{`🧘  Gập bụng · ${ex.situps} cái`}</Text>}
+                          checked={ex.sitDone}
+                          disabled={ex.sitDone}
+                          onToggle={() => toggleExercise('sit')}
+                      />
+                    </View>
+                  </View>
+                  <Text style={styles.cardFootnote}>Mỗi phần: +{Math.floor(EXERCISE_FULL_XP / 3)} XP cơ bản (× chuỗi)</Text>
+                </View>
+              </View>
+
+              {/* Purple Decorative Divider */}
+              <RPGDivider color="#7b4fd4" />
+
+              {/* Thẻ 2: Thói quen tốt */}
+              <View style={[styles.cardThreeContainerFull, { borderColor: '#2b1d4a' }]}>
+                {/* Right Image */}
+                <Image source={IMG.habitGood} style={styles.cardRightImage} />
+                {/* Blend Gradient Overlay */}
+                <View style={styles.blendContainer}>
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.95 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.85 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.75 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.65 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.55 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.45 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.35 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.25 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.15 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.05 }} />
+                </View>
+
+                {/* Left Content */}
+                <View style={styles.cardLeftContent}>
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.cardTitle}>✨ THÓI QUEN TỐT</Text>
+                    <Text style={styles.cardSubtitle}>Chỉ tick khi bạn đã thực hiện</Text>
+                  </View>
+
+                  <View style={styles.cardContent}>
+                    {goodHabitsUi.map((h) => {
+                      const done = daily.goodHabits[h.id];
+                      return (
+                          <View key={h.id} style={styles.checkRowWrapper}>
+                            <CheckRow
+                                label={
+                                  <Text 
+                                    style={[styles.cardLabel, done && styles.cardLabelDone]} 
+                                    numberOfLines={1}
+                                  >
+                                    {`${h.icon}  ${h.label}`}
+                                  </Text>
+                                }
+                                checked={done}
+                                disabled={done}
+                                onToggle={() => toggleGood(h.id)}
+                            />
+                          </View>
+                      );
+                    })}
+                  </View>
+                  <Text style={styles.cardFootnote}>Mỗi thói quen: +{GOOD_HABIT_XP} XP · +{currentPassiveBonus.healPerAction} HP</Text>
+                </View>
+              </View>
+
+              {/* Purple Decorative Divider */}
+              <RPGDivider color="#7b4fd4" />
+
+              {/* Thẻ 3: Bỏ thói quen xấu */}
+              <View style={[styles.cardThreeContainerFull, { borderColor: '#4a1d1d' }]}>
+                {/* Right Image */}
+                <Image source={IMG.habitBad} style={styles.cardRightImage} />
+                {/* Blend Gradient Overlay */}
+                <View style={styles.blendContainer}>
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.95 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.85 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.75 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.65 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.55 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.45 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.35 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.25 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.15 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.05 }} />
+                </View>
+
+                {/* Left Content */}
+                <View style={styles.cardLeftContent}>
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.cardTitle}>🛡️ BỎ THÓI QUEN XẤU</Text>
+                    <Text style={styles.cardSubtitle}>Giữ vững: XP · Trượt: trừ HP</Text>
+                  </View>
+
+                  <View style={styles.cardContent}>
+                    {badHabitsUi.map((h) => {
+                      const v = daily.badHabits[h.id];
+                      const locked = v != null;
+                      return (
+                          <View key={h.id} style={styles.badBlock}>
+                            <Text style={styles.badTitle} numberOfLines={1}>
+                              {h.icon}  {h.label}
+                            </Text>
+                            <View style={styles.badActions}>
+                              <Pressable
+                                  onPress={() => setBadHabit(h.id, 'ok')}
+                                  disabled={locked}
+                                  style={[
+                                    styles.pill,
+                                    styles.pillOk,
+                                    v === 'ok' && styles.pillActiveOk,
+                                    locked && v !== 'ok' && styles.pillDisabled,
+                                  ]}
+                              >
+                                <Text style={styles.pillText}>Đã tránh</Text>
+                              </Pressable>
+                              <Pressable
+                                  onPress={() => setBadHabit(h.id, 'fail')}
+                                  disabled={locked}
+                                  style={[
+                                    styles.pill,
+                                    styles.pillBad,
+                                    v === 'fail' && styles.pillActiveBad,
+                                    locked && v !== 'fail' && styles.pillDisabled,
+                                  ]}
+                              >
+                                <Text style={styles.pillText}>Thất bại</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                      );
+                    })}
+                  </View>
+                  <Text style={styles.cardFootnote}>
+                    Tránh thành công: +{currentMilestoneBonus.badHabitOkXp} XP · Thất bại: −{currentMilestoneBonus.badHabitDamage} HP
+                  </Text>
+                </View>
+              </View>
+
+              {/* Gold Decorative Divider */}
+              <RPGDivider color="#f5c842" />
+
+              {/* Thẻ 4: Vượt qua bản thân */}
+              <View style={[styles.cardThreeContainerFull, { borderColor: '#4a3b1d', marginBottom: 0 }]}>
+                {/* Right Image */}
+                <Image source={IMG.challenge} style={styles.cardRightImage} />
+                {/* Blend Gradient Overlay */}
+                <View style={styles.blendContainer}>
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.95 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.85 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.75 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.65 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.55 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.45 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.35 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.25 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.15 }} />
+                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.05 }} />
+                </View>
+
+                {/* Left Content */}
+                <View style={styles.cardLeftContent}>
+                  <View style={styles.cardHeader}>
+                    <Text style={[styles.cardTitle, { color: COLORS.gold }]}>🐉 VƯỢT QUA BẢN THÂN</Text>
+                    <Text style={styles.cardSubtitle}>Quest tùy chọn — XP cao hơn</Text>
+                  </View>
+
+                  <View style={styles.cardContent}>
+                    {daily.overcome.map((q, idx) => (
+                        <View key={q.id} style={styles.overcomeItemRow}>
+                          <View style={styles.overcomeCheckContainer}>
+                            <CheckRow
+                                label={
+                                  <Text 
+                                    style={[styles.overcomeLabel, q.done && styles.overcomeLabelDone]} 
+                                    numberOfLines={2}
+                                  >
+                                    {q.title}
+                                  </Text>
+                                }
+                                checked={q.done}
+                                disabled={q.done}
+                                onToggle={() => toggleOvercome(idx)}
+                            />
+                          </View>
+                          <View style={styles.overcomeXpBadge}>
+                            <Text style={styles.overcomeXpText}>+{q.xp} XP</Text>
+                          </View>
+                        </View>
+                    ))}
                   </View>
                 </View>
-              </>
-            )}
-          </SectionCard>
-        ) : null}
+              </View>
 
-        <Text style={styles.footer}>
-          Đồng bộ đám mây (Firestore) · cache offline (AsyncStorage) · quest reset
-          mỗi ngày mới theo lịch
-        </Text>
-      </ScrollView>
-      {systemMessage}
-    </KeyboardAvoidingView>
-    </SafeAreaView>
+            </View>
+
+          </ScrollView>
+          {systemMessage}
+        </KeyboardAvoidingView>
+      </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: '#0c0c10' },
-  flexInner: { flex: 1 },
-  achToastWrap: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    zIndex: 50,
-    backgroundColor: '#1e1c14',
-    borderWidth: 1,
-    borderColor: '#5c4f2a',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 6,
+  flex: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
   },
-  achToastText: {
-    color: '#f3eee6',
-    fontWeight: '700',
-    fontSize: 14,
-    textAlign: 'center',
+  flexInner: {
+    flex: 1,
   },
-  titleToastWrap: {
-    backgroundColor: '#3a2a0a',
-    borderColor: '#f59e0b',
+  scroll: {
+    flex: 1,
   },
-  titleToastText: {
-    color: '#fff7d6',
-  },
-  passiveToastWrap: {
-    backgroundColor: '#33270b',
-    borderColor: '#d4af37',
-  },
-  passiveToastText: {
-    color: '#fff3bf',
-  },
-  milestoneToastWrap: {
-    backgroundColor: '#0f2f22',
-    borderColor: '#10b981',
-  },
-  milestoneToastText: {
-    color: '#d1fae5',
-  },
-  scroll: { flex: 1 },
   content: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
     paddingBottom: 40,
   },
   loading: {
     flex: 1,
-    backgroundColor: '#0c0c10',
+    backgroundColor: COLORS.bg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loadingText: { color: '#8a847a', marginTop: 12 },
-  hero: { marginBottom: 14 },
-  heroTop: {
-    flexDirection: 'row',
+  loadingText: {
+    color: COLORS.textSecondary,
+    marginTop: 12,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  headerBg: {
+    height: 220,
+    width: '100%',
+    marginBottom: 12,
+  },
+  headerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 16,
     justifyContent: 'space-between',
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
     alignItems: 'flex-start',
   },
-  heroTexts: { flex: 1, paddingRight: 8 },
-  heroActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  heroIconTap: { padding: 6 },
-  heroIcon: { fontSize: 24 },
+  heroActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  heroIconBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 50,
+  },
+  heroIcon: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  heroIconLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  headerBottom: {
+    justifyContent: 'flex-end',
+  },
   brand: {
-    color: '#f3eee6',
-    fontSize: 26,
+    color: COLORS.gold,
+    fontSize: 28,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
+  },
+  tagline: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    marginTop: 4,
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
+  },
+  levelStreakRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginHorizontal: 12,
+    marginBottom: 12,
+  },
+  levelCard: {
+    flex: 1.5,
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.cardBorder,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+  },
+  levelLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  levelNum: {
+    color: COLORS.gold,
+    fontSize: 48,
+    fontWeight: '900',
+    lineHeight: 52,
+  },
+  levelTitle: {
+    color: COLORS.purple,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  levelBars: {
+    gap: 4,
+    marginBottom: 8,
+  },
+  diffHint: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+  },
+  reviveBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.16)',
+    borderColor: '#f59e0b',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 9,
+    marginTop: 2,
+  },
+  reviveBtnText: {
+    color: '#f59e0b',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  streakCard: {
+    flex: 1,
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.cardBorder,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  streakEmoji: {
+    fontSize: 32,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  streakNum: {
+    color: COLORS.orange,
+    fontSize: 36,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  streakDayText: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  streakMultiplierText: {
+    color: COLORS.gold,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  statsWorkFullRow: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+  },
+  genericCardFull: {
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.cardBorder,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+  },
+  statsTitleDecoration: {
+    color: COLORS.gold,
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 12,
+    letterSpacing: 1,
+  },
+  statsContainerVertical: {
+    gap: 12,
+  },
+  statRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  statRowLabel: {
+    color: COLORS.textPrimary,
+    fontSize: 13,
+    fontWeight: '800',
+    width: 110,
+  },
+  statRowBarTrack: {
+    flex: 1,
+    height: 6,
+    backgroundColor: '#070710',
+    borderRadius: 3,
+    marginHorizontal: 8,
+    overflow: 'hidden',
+  },
+  statRowBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  statRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    width: 100,
+    gap: 6,
+  },
+  statRowLevel: {
+    color: COLORS.gold,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  statRowXp: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+  },
+  workHeaderFull: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  workTitleFull: {
+    color: COLORS.gold,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  workSubtitleFull: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+  },
+  workInputRowFull: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  workInputFull: {
+    flex: 1,
+    backgroundColor: '#0c0c1a',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: COLORS.textPrimary,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    fontSize: 14,
+  },
+  workAddBtnFull: {
+    backgroundColor: 'rgba(245, 200, 66, 0.15)',
+    borderColor: COLORS.gold,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  workAddBtnTextFull: {
+    color: COLORS.gold,
+    fontWeight: '900',
+    fontSize: 12,
+  },
+  workListScrollFull: {
+    maxHeight: 280,
+  },
+  taskRowFull: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.03)',
+    paddingBottom: 6,
+  },
+  taskCheckFull: {
+    flex: 1,
+  },
+  taskCheckLabelFull: {
+    color: '#e8e4dc',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  trashFull: {
+    padding: 10,
+  },
+  trashTextFull: {
+    color: COLORS.red,
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  emptyFull: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  colThreeCards: {
+    gap: 0,
+    marginHorizontal: 12,
+    marginBottom: 12,
+  },
+  cardThreeContainerFull: {
+    width: '100%',
+    backgroundColor: '#080816',
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    padding: 16,
+    position: 'relative',
+    minHeight: 180,
+  },
+  cardRightImage: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: '45%',
+    height: '100%',
+    resizeMode: 'cover',
+    borderTopRightRadius: 11,
+    borderBottomRightRadius: 11,
+  },
+  blendContainer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: '50%',
+    width: '15%',
+    flexDirection: 'row',
+  },
+  cardLeftContent: {
+    width: '60%',
+    zIndex: 2,
+  },
+  cardHeader: {
+    marginBottom: 12,
+  },
+  cardTitle: {
+    color: COLORS.textPrimary,
+    fontSize: 14,
     fontWeight: '900',
     letterSpacing: 0.5,
   },
-  tagline: { color: '#7d786f', marginTop: 4, fontSize: 13 },
-  statsCard: {
-    backgroundColor: '#14141c',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#2a2a38',
+  cardSubtitle: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+    marginTop: 2,
+  },
+  cardContent: {
+    gap: 6,
     marginBottom: 8,
   },
-  statsTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+  checkRowWrapper: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.03)',
+    paddingBottom: 6,
+    marginBottom: 2,
   },
-  levelLabel: { color: '#9a958c', fontSize: 12 },
-  levelNum: { color: '#d4af37', fontSize: 32, fontWeight: '800' },
-  levelTitle: {
-    color: '#f59e0b',
+  cardLabel: {
+    color: '#e8e4dc',
     fontSize: 12,
-    fontStyle: 'italic',
-    marginTop: 1,
-    minWidth: 86,
+    fontWeight: '600',
   },
-  streakBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#241a12',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#3d2a18',
+  cardLabelDone: {
+    color: '#a89b7a',
   },
-  streakIcon: { fontSize: 22, marginRight: 8 },
-  streakNum: { color: '#ffb454', fontWeight: '700' },
-  streakMeta: { color: '#a88050', fontSize: 11, marginTop: 2 },
-  diffHint: {
-    color: '#5c5766',
-    fontSize: 11,
-    marginTop: 6,
-  },
-  characterStatsSection: {
-    backgroundColor: '#1e1e1e',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    marginBottom: 8,
-  },
-  characterStatsTitle: {
-    color: '#d4af37',
-    fontSize: 15,
-    fontWeight: '800',
-    marginBottom: 10,
-  },
-  characterStatsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  characterStatTile: {
-    width: '48.7%',
-    backgroundColor: '#2a2a2a',
-    borderRadius: 8,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#373737',
-  },
-  characterStatTileFull: {
-    width: '100%',
-  },
-  characterStatTop: {
-    minHeight: 22,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  characterStatName: {
-    flex: 1,
-    minWidth: 0,
-    color: '#f3eee6',
-    fontSize: 12,
-    fontWeight: '800',
-    marginRight: 8,
-  },
-  characterStatLevel: {
-    fontSize: 12,
-    fontWeight: '900',
-    fontVariant: ['tabular-nums'],
-  },
-  characterStatTrack: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#1a1a1a',
-    overflow: 'hidden',
-  },
-  characterStatFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  characterStatXp: {
-    color: '#9a958c',
+  cardFootnote: {
+    color: COLORS.textSecondary,
     fontSize: 10,
     marginTop: 6,
-    fontVariant: ['tabular-nums'],
   },
-  inputRow: { flexDirection: 'row', marginBottom: 10, gap: 8 },
-  input: {
+  badBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.03)',
+  },
+  badTitle: {
+    color: COLORS.textPrimary,
+    fontSize: 12,
+    fontWeight: '700',
     flex: 1,
-    backgroundColor: '#12121a',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: '#e8e4dc',
-    borderWidth: 1,
-    borderColor: '#2a2a38',
+    paddingRight: 6,
   },
-  addBtn: {
-    backgroundColor: '#3d3520',
-    paddingHorizontal: 16,
-    borderRadius: 10,
+  badActions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  pill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#5c4f2a',
-  },
-  addBtnText: { color: '#d4af37', fontWeight: '700' },
-  empty: { color: '#5c5766', fontStyle: 'italic', marginBottom: 8 },
-  taskRow: { flexDirection: 'row', alignItems: 'center' },
-  taskCheck: { flex: 1 },
-  trash: { padding: 8, marginLeft: 4 },
-  trashText: { color: '#8a5a5a', fontSize: 16, fontWeight: '700' },
-  smallNote: { color: '#5c5766', fontSize: 11, marginTop: 8 },
-  badBlock: {
-    marginBottom: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#252532',
-  },
-  badTitle: { color: '#ddd8d0', fontWeight: '600', marginBottom: 8 },
-  badActions: { flexDirection: 'row', gap: 10 },
-  pill: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignItems: 'center',
-    borderWidth: 1,
+    minWidth: 55,
   },
   pillOk: {
-    backgroundColor: '#13261c',
-    borderColor: '#2a5c40',
+    backgroundColor: '#0a1a10',
+    borderColor: '#1a3c26',
   },
   pillBad: {
-    backgroundColor: '#2a1616',
-    borderColor: '#5c2a2a',
+    backgroundColor: '#1d0e0e',
+    borderColor: '#3c1a1a',
   },
   pillActiveOk: {
-    borderColor: '#4e9f6d',
-    backgroundColor: '#1a3324',
+    borderColor: '#34d399',
+    backgroundColor: '#113a24',
   },
   pillActiveBad: {
-    borderColor: '#c94c4c',
-    backgroundColor: '#331a1a',
+    borderColor: COLORS.red,
+    backgroundColor: '#4d1c1c',
   },
-  pillDisabled: { opacity: 0.35 },
-  pillPressed: { opacity: 0.8 },
-  pillText: { color: '#e8e4dc', fontWeight: '700', fontSize: 13 },
-  notifRow: {
+  pillDisabled: {
+    opacity: 0.2,
+  },
+  pillText: {
+    color: COLORS.textPrimary,
+    fontWeight: '800',
+    fontSize: 9,
+  },
+  overcomeItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
-    paddingVertical: 4,
-  },
-  notifRowText: { flex: 1, marginRight: 12 },
-  notifLabel: {
-    color: '#e8e4dc',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  notifHint: {
-    color: '#5c5766',
-    fontSize: 11,
-    marginTop: 4,
-  },
-  timeBlock: {
-    marginBottom: 14,
-    paddingBottom: 12,
+    paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#252532',
+    borderBottomColor: 'rgba(255,255,255,0.03)',
   },
-  timeBlockTitle: {
-    color: '#c8c4bc',
-    fontSize: 13,
-    fontWeight: '700',
+  overcomeCheckContainer: {
+    flex: 1,
   },
-  timeBlockSub: {
-    color: '#5c5766',
-    fontSize: 11,
-    marginTop: 4,
-    marginBottom: 10,
-  },
-  timeInputs: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  timeField: {
-    minWidth: 48,
-    backgroundColor: '#12121a',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+  overcomeLabel: {
     color: '#e8e4dc',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  overcomeLabelDone: {
+    color: '#a89b7a',
+  },
+  overcomeXpBadge: {
+    backgroundColor: 'rgba(245, 200, 66, 0.1)',
+    borderColor: '#f5c842',
     borderWidth: 1,
-    borderColor: '#2a2a38',
-    fontSize: 16,
-    fontVariant: ['tabular-nums'],
-    textAlign: 'center',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 6,
   },
-  timeFieldDisabled: {
-    opacity: 0.4,
-  },
-  timeSep: {
-    color: '#7d786f',
-    fontSize: 18,
-    fontWeight: '700',
-    marginHorizontal: 8,
-  },
-  footer: {
-    color: '#4a453d',
-    fontSize: 11,
-    textAlign: 'center',
-    marginTop: 8,
+  overcomeXpText: {
+    color: '#f5c842',
+    fontSize: 9,
+    fontWeight: '800',
   },
   penaltySection: {
-    backgroundColor: '#1a0000',
+    backgroundColor: 'rgba(230, 57, 70, 0.1)',
     borderWidth: 1,
-    borderColor: '#ef4444',
-    borderRadius: 14,
+    borderColor: COLORS.red,
+    borderRadius: 12,
     padding: 14,
-    marginBottom: 14,
+    marginHorizontal: 12,
+    marginBottom: 12,
   },
   penaltyTitle: {
-    color: '#ef4444',
+    color: COLORS.red,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '900',
     marginBottom: 8,
+    letterSpacing: 1,
   },
   penaltyText: {
-    color: '#ffffff',
+    color: COLORS.textPrimary,
     fontSize: 14,
     marginBottom: 12,
+    fontWeight: '700',
   },
   penaltyActions: {
     flexDirection: 'row',
@@ -1605,7 +1802,7 @@ const styles = StyleSheet.create({
   },
   penaltyBtnComplete: {
     flex: 1,
-    backgroundColor: '#064e3b',
+    backgroundColor: '#1b4d3e',
     paddingVertical: 10,
     borderRadius: 10,
     alignItems: 'center',
@@ -1614,16 +1811,42 @@ const styles = StyleSheet.create({
   },
   penaltyBtnSkip: {
     flex: 1,
-    backgroundColor: '#450a0a',
+    backgroundColor: '#4d1b22',
     paddingVertical: 10,
     borderRadius: 10,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ef4444',
+    borderColor: COLORS.red,
   },
   penaltyBtnText: {
     color: '#ffffff',
-    fontWeight: '700',
+    fontWeight: '800',
     fontSize: 13,
+  },
+  // RPG Decorative Divider Styles
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 14,
+    paddingHorizontal: 12,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    opacity: 0.35,
+  },
+  dividerDiamond: {
+    width: 10,
+    height: 10,
+    borderWidth: 1,
+    transform: [{ rotate: '45deg' }],
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 10,
+  },
+  dividerDiamondInner: {
+    width: 4,
+    height: 4,
   },
 });

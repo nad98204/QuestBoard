@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BAD_HABITS, GOOD_HABITS } from '../utils/constants';
@@ -24,6 +25,13 @@ import {
   restoreBackup,
   saveState,
 } from '../utils/storage';
+import {
+  applyDailyReminderSchedule,
+  loadNotificationSettings,
+  notificationsSupportedNative,
+  requestNotificationPermissionIfNeeded,
+  saveNotificationSettings,
+} from '../utils/notifications';
 
 function LabeledInput({ label, hint, value, onChangeText, keyboardType }) {
   return (
@@ -66,6 +74,8 @@ export default function SettingsScreen({
     BAD_HABITS.map((h, i) => badHabitLabels?.[i] ?? h.label)
   );
 
+  const [notifSettings, setNotifSettings] = useState(null);
+
   const [savingType, setSavingType] = useState(null);
   const [resetTodayBusy, setResetTodayBusy] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
@@ -94,6 +104,29 @@ export default function SettingsScreen({
   useEffect(() => {
     refreshBackups();
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      const n = await loadNotificationSettings();
+      setNotifSettings(n);
+    })();
+  }, []);
+
+  const flushNotifTimes = () => {
+    if (!notifSettings) return;
+    const next = {
+      ...notifSettings,
+      morningHour: Math.min(23, Math.max(0, Math.round(Number(notifSettings.morningHour)) || 0)),
+      morningMinute: Math.min(59, Math.max(0, Math.round(Number(notifSettings.morningMinute)) || 0)),
+      eveningHour: Math.min(23, Math.max(0, Math.round(Number(notifSettings.eveningHour)) || 0)),
+      eveningMinute: Math.min(59, Math.max(0, Math.round(Number(notifSettings.eveningMinute)) || 0)),
+    };
+    setNotifSettings(next);
+    Promise.resolve().then(async () => {
+      await saveNotificationSettings(next);
+      await applyDailyReminderSchedule(next);
+    });
+  };
 
   async function refreshBackups() {
     setBackupsLoading(true);
@@ -236,6 +269,129 @@ export default function SettingsScreen({
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        {/* NHẮC NHỞ HẰNG NGÀY */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🔔 Nhắc nhở hằng ngày</Text>
+          <Text style={styles.sectionSub}>
+            Gửi thông báo local định kỳ trên thiết bị để nhắc bạn thực hiện nhiệm vụ.
+          </Text>
+          {notifSettings ? (
+            <View style={styles.notifContent}>
+              {!notificationsSupportedNative() ? (
+                <Text style={styles.notifDisabledHint}>
+                  Thông báo định kỳ chỉ hỗ trợ trên app iOS/Android thực tế.
+                </Text>
+              ) : (
+                <>
+                  <View style={styles.notifToggleRow}>
+                    <Text style={styles.notifToggleLabel}>Bật nhắc nhở</Text>
+                    <Switch
+                      value={notifSettings.enabled}
+                      onValueChange={async (v) => {
+                        if (v) {
+                          const ok = await requestNotificationPermissionIfNeeded();
+                          if (!ok) {
+                            Alert.alert(
+                              'Cần quyền thông báo',
+                              'Hãy bật quyền trong Cài đặt hệ thống để nhận nhắc nhở hằng ngày.'
+                            );
+                            return;
+                          }
+                        }
+                        const next = { ...notifSettings, enabled: v };
+                        setNotifSettings(next);
+                        await saveNotificationSettings(next);
+                        await applyDailyReminderSchedule(next);
+                      }}
+                      thumbColor={notifSettings.enabled ? '#d4af37' : '#5c5766'}
+                      trackColor={{
+                        false: '#2a2a38',
+                        true: '#3d3520',
+                      }}
+                    />
+                  </View>
+
+                  <View style={styles.timePickersContainer}>
+                    <View style={styles.timePickerBox}>
+                      <Text style={styles.timePickerTitle}>🌅 SÁNG</Text>
+                      <View style={styles.timeInputsRow}>
+                        <TextInput
+                          editable={notifSettings.enabled}
+                          keyboardType="number-pad"
+                          maxLength={2}
+                          value={String(notifSettings.morningHour)}
+                          onChangeText={(t) => {
+                            const n = Number(String(t).replace(/\D/g, '') || 0);
+                            setNotifSettings((p) => ({
+                              ...p,
+                              morningHour: Math.min(23, Math.max(0, n)),
+                            }));
+                          }}
+                          onBlur={flushNotifTimes}
+                          style={[styles.notifTimeField, !notifSettings.enabled && styles.notifTimeFieldDisabled]}
+                        />
+                        <Text style={styles.notifTimeSep}>:</Text>
+                        <TextInput
+                          editable={notifSettings.enabled}
+                          keyboardType="number-pad"
+                          maxLength={2}
+                          value={String(notifSettings.morningMinute)}
+                          onChangeText={(t) => {
+                            const n = Number(String(t).replace(/\D/g, '') || 0);
+                            setNotifSettings((p) => ({
+                              ...p,
+                              morningMinute: Math.min(59, Math.max(0, n)),
+                            }));
+                          }}
+                          onBlur={flushNotifTimes}
+                          style={[styles.notifTimeField, !notifSettings.enabled && styles.notifTimeFieldDisabled]}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.timePickerBox}>
+                      <Text style={styles.timePickerTitle}>🌌 TỐI</Text>
+                      <View style={styles.timeInputsRow}>
+                        <TextInput
+                          editable={notifSettings.enabled}
+                          keyboardType="number-pad"
+                          maxLength={2}
+                          value={String(notifSettings.eveningHour)}
+                          onChangeText={(t) => {
+                            const n = Number(String(t).replace(/\D/g, '') || 0);
+                            setNotifSettings((p) => ({
+                              ...p,
+                              eveningHour: Math.min(23, Math.max(0, n)),
+                            }));
+                          }}
+                          onBlur={flushNotifTimes}
+                          style={[styles.notifTimeField, !notifSettings.enabled && styles.notifTimeFieldDisabled]}
+                        />
+                        <Text style={styles.notifTimeSep}>:</Text>
+                        <TextInput
+                          editable={notifSettings.enabled}
+                          keyboardType="number-pad"
+                          maxLength={2}
+                          value={String(notifSettings.eveningMinute)}
+                          onChangeText={(t) => {
+                            const n = Number(String(t).replace(/\D/g, '') || 0);
+                            setNotifSettings((p) => ({
+                              ...p,
+                              eveningMinute: Math.min(59, Math.max(0, n)),
+                            }));
+                          }}
+                          onBlur={flushNotifTimes}
+                          style={[styles.notifTimeField, !notifSettings.enabled && styles.notifTimeFieldDisabled]}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                </>
+              )}
+            </View>
+          ) : null}
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Thể dục — phạm vi random</Text>
           <Text style={styles.sectionSub}>
@@ -569,4 +725,73 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   resetTodayBtnText: { color: '#0c0c10', fontWeight: '800', fontSize: 15 },
+  // NHẮC NHỞ HẰNG NGÀY STYLING
+  notifContent: {
+    marginTop: 6,
+  },
+  notifDisabledHint: {
+    color: '#5c5766',
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
+  notifToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#12121a',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#2a2a38',
+  },
+  notifToggleLabel: {
+    color: '#e8e4dc',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  timePickersContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  timePickerBox: {
+    flex: 1,
+    backgroundColor: '#12121a',
+    borderRadius: 10,
+    padding: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2a2a38',
+  },
+  timePickerTitle: {
+    color: '#9a958c',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  timeInputsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  notifTimeField: {
+    width: 38,
+    backgroundColor: '#0c0c10',
+    borderColor: '#2a2a38',
+    borderWidth: 1,
+    borderRadius: 6,
+    padding: 4,
+    color: '#e8e4dc',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  notifTimeFieldDisabled: {
+    opacity: 0.3,
+  },
+  notifTimeSep: {
+    color: '#9a958c',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginHorizontal: 6,
+  },
 });

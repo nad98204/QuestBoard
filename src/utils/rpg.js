@@ -1,7 +1,11 @@
 import {
+  DEATH_DEBUFF_HOURS,
+  DEATH_DEBUFF_XP_MULT,
+  DEATH_XP_PENALTY,
   DIFFICULTY_DAILY_MULT,
   OVERCOME_POOL,
   OVERCOME_XP,
+  REVIVAL_HP,
   STATS,
   PENALTY_THRESHOLD,
   PENALTY_QUESTS,
@@ -42,6 +46,35 @@ export function advanceStreak(profile) {
 
 export function xpToNextLevel(level) {
   return 80 + (level - 1) * 45;
+}
+
+export function isDead(profile) {
+  return Number(profile?.hp) <= 0;
+}
+
+export function applyDeath(profile) {
+  const xpInLevel = Math.max(
+    0,
+    Math.floor((profile?.xpInLevel ?? 0) * (1 - DEATH_XP_PENALTY))
+  );
+  return {
+    ...profile,
+    streak: 0,
+    xpInLevel,
+    deathDebuffUntil: Date.now() + DEATH_DEBUFF_HOURS * 60 * 60 * 1000,
+    hp: 0,
+  };
+}
+
+export function hasDeathDebuff(profile) {
+  return Date.now() < (profile?.deathDebuffUntil ?? 0);
+}
+
+export function revive(profile) {
+  return {
+    ...profile,
+    hp: REVIVAL_HP,
+  };
 }
 
 export function getCharacterTitle(level) {
@@ -193,7 +226,8 @@ export function applyXpGain(profile, rawXp) {
   const mult =
     streakMultiplier(profile.streak) *
     getStatBonus(profile) *
-    getPassiveBonus(profile.level).xpBonus;
+    getPassiveBonus(profile.level).xpBonus *
+    (hasDeathDebuff(profile) ? DEATH_DEBUFF_XP_MULT : 1);
   let gain = Math.floor(rawXp * mult);
   if (gain < 1 && rawXp > 0) gain = 1;
 

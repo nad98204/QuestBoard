@@ -8,6 +8,10 @@ export const OVERCOME_XP = { easy: 60, normal: 100, hard: 150 };
 
 export const HP_HEAL_ON_COMPLETE = 3;
 export const HP_DAMAGE_BAD_HABIT = 18;
+export const DEATH_XP_PENALTY = 0.2;
+export const DEATH_DEBUFF_HOURS = 24;
+export const DEATH_DEBUFF_XP_MULT = 0.8;
+export const REVIVAL_HP = 30;
 
 export const STATS = {
   strength: {
