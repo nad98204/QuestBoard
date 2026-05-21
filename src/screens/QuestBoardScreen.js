@@ -24,9 +24,26 @@ import SystemMessage from '../components/SystemMessage';
 import {
   BAD_HABITS,
   DEATH_DEBUFF_HOURS,
+  DEATH_XP_PENALTY,
   EXERCISE_FULL_XP,
+  EXERCISE_STAT_GAIN,
+  GOOD_HABIT_BONUS_XP,
   GOOD_HABITS,
   GOOD_HABIT_XP,
+  HP_DAILY_HEAL_CAP,
+  HP_HEAL_EXERCISE,
+  HP_HEAL_GOOD_HABIT,
+  HP_HEAL_OVERCOME,
+  HP_HEAL_PENALTY_COMPLETE,
+  MANA_BASE_MAX,
+  MANA_GAIN_EXERCISE,
+  MANA_GAIN_EXERCISE_FULL_BONUS,
+  MANA_GAIN_GOOD_HABIT,
+  MANA_GAIN_MIND_HABIT_EXTRA,
+  MANA_GAIN_OVERCOME,
+  MANA_SKILL_COSTS,
+  PENALTY_HP_COST,
+  REVIVAL_HP,
   STAT_MILESTONES,
   STATS,
   WORK_TASK_XP,
@@ -50,13 +67,14 @@ import {
   streakMultiplier,
   xpToNextLevel,
   getTodayKey,
-  checkPenaltyNeeded,
+  getPenaltySummary,
   generatePenaltyQuest,
 } from '../utils/rpg';
 import { loadState, mergeHistoryIntoState, saveState } from '../utils/storage';
 import StatsScreen from './StatsScreen';
 import SettingsScreen from './SettingsScreen';
 import AiCoachScreen from './AiCoachScreen';
+import RulesScreen from './RulesScreen';
 
 import {
   habitsWithCustomLabels,
@@ -82,11 +100,12 @@ const COLORS = {
 };
 
 const IMG = {
-  hero:      { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/videos/1778589304496-539452240-1--nh-Hero-ch-nh--header-background-.jpg' },
-  exercise:  { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/videos/1778589312357-919274139-2-Card-Th--d-c--lightning-warrior-.jpg' },
-  habitGood: { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/videos/1778589314868-62737179-3-Card-Th-i-quen-t-t--purple-mist-monk-.jpg' },
-  habitBad:  { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/videos/1778589317068-714388556-4-Card-B--th-i-quen-x-u--armored-knight-.jpg' },
-  challenge: { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/videos/1778589319391-293230618-5--nh-V--t-qua-b-n-th-n--standing-in-light-.jpg' },
+  hero:      { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/files/1779375668471-232615443-1.jpg' },
+  exercise:  { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/files/1779375669454-374021600-2.jpg' },
+  habitGood: { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/files/1779375669960-83192505-3.jpg' },
+  habitBad:  { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/files/1779375670530-26358434-4.jpg' },
+  challenge: { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/files/1779375671060-668969896-5.jpg' },
+  homeLogo: require('../../assets/images/home-logo.png'),
 };
 
 function mapFitnessActionData(data) {
@@ -131,6 +150,57 @@ function damage(profile, amount) {
   return { ...profile, hp };
 }
 
+function healWithDailyCap(state, profile, amount, bypassCap = false) {
+  const daily = state.daily ?? {};
+  const requested = Math.max(0, Number(amount) || 0);
+  const alreadyHealed = Math.max(0, Number(daily.hpHealedToday) || 0);
+  const allowed = bypassCap
+      ? requested
+      : Math.min(requested, Math.max(0, HP_DAILY_HEAL_CAP - alreadyHealed));
+  return {
+    profile: heal(profile, allowed),
+    daily: {
+      ...daily,
+      hpHealedToday: bypassCap ? alreadyHealed : alreadyHealed + allowed,
+    },
+    healed: allowed,
+  };
+}
+
+function getManaMax(profile) {
+  const stats = normalizeStats(profile?.stats);
+  const levelBonus = Math.floor(Math.max(0, (profile?.level ?? 1) - 1) / 5) * 5;
+  return (
+      MANA_BASE_MAX +
+      levelBonus +
+      stats.spirit.level * 3 +
+      stats.wisdom.level * 2
+  );
+}
+
+function clampMana(profile) {
+  return {
+    ...profile,
+    mana: Math.min(getManaMax(profile), Math.max(0, Math.round(Number(profile?.mana) || 0))),
+  };
+}
+
+function gainMana(profile, amount) {
+  const maxMana = getManaMax(profile);
+  const mana = Math.min(
+      maxMana,
+      Math.max(0, Math.round(Number(profile?.mana) || 0)) +
+        Math.max(0, Math.round(Number(amount) || 0))
+  );
+  return { ...profile, mana };
+}
+
+function spendMana(profile, cost) {
+  const mana = Math.max(0, Math.round(Number(profile?.mana) || 0));
+  if (mana < cost) return null;
+  return { ...profile, mana: mana - cost };
+}
+
 function getDateKeyFromTimestamp(timestamp) {
   const d = new Date(timestamp);
   if (Number.isNaN(d.getTime())) return null;
@@ -173,7 +243,7 @@ const STAT_KEYS = ['strength', 'endurance', 'spirit', 'discipline', 'wisdom'];
 
 const PASSIVE_LEVEL_BONUSES = {
   5: 'HP tối đa +10',
-  10: 'Hồi HP +1 mỗi hành động',
+  10: 'Tinh thần chiến đấu ổn định hơn',
   20: 'XP nhận được +5%',
   30: 'HP tối đa +20',
   50: 'Stat bonus tối đa x2',
@@ -198,6 +268,7 @@ export default function QuestBoardScreen() {
   const [showStats, setShowStats] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAiCoach, setShowAiCoach] = useState(false);
+  const [showRules, setShowRules] = useState(false);
   const [systemMsg, setSystemMsg] = useState({
     visible: false,
     title: '',
@@ -268,7 +339,7 @@ export default function QuestBoardScreen() {
             'NGƯƠI ĐÃ NGÃ XUỐNG',
             [
               'Streak bị xóa.',
-              'XP bị trừ 20%.',
+              `XP bị trừ ${Math.round(DEATH_XP_PENALTY * 100)}%.`,
               'Hoàn thành quest để hồi sinh.',
             ],
             '#ef4444'
@@ -288,7 +359,7 @@ export default function QuestBoardScreen() {
       queueMicrotask(() => {
         showSystemMessage(
           'HỒI SINH',
-          ['30 HP được hồi.', 'Thương tích còn 24h.'],
+          [`${REVIVAL_HP} HP được hồi.`, 'Thương tích còn 24h.'],
           '#f59e0b'
         );
       });
@@ -313,7 +384,7 @@ export default function QuestBoardScreen() {
         (level) => profile.level < level && nextProfile.level >= level
     );
     nextProfile = {
-      ...nextProfile,
+      ...clampMana(nextProfile),
       maxHp: passiveBonus.maxHp,
       hp: clampHp(nextProfile.hp, passiveBonus.maxHp),
     };
@@ -470,10 +541,19 @@ export default function QuestBoardScreen() {
       s = { ...s, profile: revive(s.profile) };
       persist(s);
     }
-    if (checkPenaltyNeeded(s.history, today) && !s.daily.penaltyQuest && !s.daily.penaltyHandled) {
+    const penaltySummary = getPenaltySummary(s.history, today);
+    if (penaltySummary?.needed && !s.daily.penaltyQuest && !s.daily.penaltyHandled) {
       const pQuest = generatePenaltyQuest(today);
       s = { ...s, daily: { ...s.daily, penaltyQuest: pQuest } };
-      showSystemMessage('⚠️ NHIỆM VỤ PHẠT', ["Hôm qua ngươi đã thất bại.", "Hoàn thành hoặc chịu hậu quả.", pQuest.text], '#ef4444');
+      showSystemMessage(
+          '⚠️ NHIỆM VỤ PHẠT',
+          [
+            `Hôm qua hoàn thành ${penaltySummary.done}/${penaltySummary.total} mục thể dục.`,
+            `Cần hoàn thành đủ ${penaltySummary.total}/${penaltySummary.total} mục để tránh phạt.`,
+            pQuest.text,
+          ],
+          '#ef4444'
+      );
       persist(s);
     }
     setState(s);
@@ -484,13 +564,23 @@ export default function QuestBoardScreen() {
       let profile = { ...s.profile };
       const { profile: afterXp } = gainXp(profile, 80);
       profile = afterXp;
-      profile = heal(profile, 10);
+      const healed = healWithDailyCap(
+          s,
+          profile,
+          HP_HEAL_PENALTY_COMPLETE,
+          true
+      );
+      profile = healed.profile;
 
       queueMicrotask(() => {
-        showSystemMessage('NHIỆM VỤ PHẠT HOÀN THÀNH', ["Ngươi đã vượt qua thử thách.", "+80 XP · +10 HP"], '#34d399');
+        showSystemMessage(
+            'NHIỆM VỤ PHẠT HOÀN THÀNH',
+            ["Ngươi đã vượt qua thử thách.", `+80 XP · +${healed.healed} HP`],
+            '#34d399'
+        );
       });
 
-      let nextState = gainStat({ ...s, profile }, 'wisdom', 5).state;
+      let nextState = gainStat({ ...s, profile, daily: healed.daily }, 'wisdom', 5).state;
       const daily = { ...nextState.daily, penaltyHandled: true };
       delete daily.penaltyQuest;
       return { ...nextState, daily };
@@ -500,17 +590,79 @@ export default function QuestBoardScreen() {
   const handlePenaltySkip = () => {
     commit((s) => {
       const beforeHp = s.profile.hp;
-      let profile = damage(s.profile, 20);
+      let profile = damage(s.profile, PENALTY_HP_COST);
       const died = beforeHp > 0 && isDead(profile);
       profile = applyDeathIfNeeded(profile, beforeHp);
       if (!died) {
         queueMicrotask(() => {
-        showSystemMessage('HẬU QUẢ', ["Ngươi đã chọn con đường yếu đuối.", "-20 HP"], '#ef4444');
+        showSystemMessage('HẬU QUẢ', ["Ngươi đã chọn con đường yếu đuối.", `-${PENALTY_HP_COST} HP`], '#ef4444');
         });
       }
       const daily = { ...s.daily, penaltyHandled: true };
       delete daily.penaltyQuest;
       return { ...s, profile, daily };
+    });
+  };
+
+  const castFocus = () => {
+    commit((s) => {
+      if (s.daily.focusWorkBuff) return s;
+      const profile = spendMana(s.profile, MANA_SKILL_COSTS.focus);
+      if (!profile) return s;
+      queueMicrotask(() => {
+        showSystemMessage(
+            'TẬP TRUNG',
+            ['Nhiệm vụ công việc tiếp theo nhận x2 XP.'],
+            '#60a5fa'
+        );
+      });
+      return {
+        ...s,
+        profile,
+        daily: { ...s.daily, focusWorkBuff: true },
+      };
+    });
+  };
+
+  const castShield = () => {
+    commit((s) => {
+      if (s.profile.manaShieldActive) return s;
+      const profile = spendMana(s.profile, MANA_SKILL_COSTS.shield);
+      if (!profile) return s;
+      queueMicrotask(() => {
+        showSystemMessage(
+            'KHIÊN Ý CHÍ',
+            ['Lần thất bại thói quen xấu tiếp theo giảm 50% damage.'],
+            '#38bdf8'
+        );
+      });
+      return { ...s, profile: { ...profile, manaShieldActive: true } };
+    });
+  };
+
+  const castPurify = () => {
+    commit((s) => {
+      const count = s.profile.lastAutoFailCount ?? 0;
+      const damageEach = s.profile.lastAutoFailDamageEach ?? 0;
+      if (count <= 0 || damageEach <= 0 || isDead(s.profile)) return s;
+      const spent = spendMana(s.profile, MANA_SKILL_COSTS.purify);
+      if (!spent) return s;
+      const profile = heal(
+          {
+            ...spent,
+            lastAutoFailCount: count - 1,
+            lastAutoFailDamage: Math.max(0, (spent.lastAutoFailDamage ?? 0) - damageEach),
+          },
+          damageEach
+      );
+      queueMicrotask(() => {
+        showSystemMessage(
+            'THANH TẨY',
+            [`Hoàn lại 1 lần quên tick thói quen xấu.`, `+${damageEach} HP`],
+            '#a78bfa'
+        );
+      });
+      return { ...s, profile };
     });
   };
 
@@ -559,9 +711,10 @@ export default function QuestBoardScreen() {
       let profile = { ...s.profile };
       profile = advanceStreak(profile);
       const beforeLevel = profile.level;
+      const workXp = WORK_TASK_XP * (s.daily.focusWorkBuff ? 2 : 1);
       const { profile: afterXp, scheduledXpMessage } = gainXp(
           profile,
-          WORK_TASK_XP
+          workXp
       );
       profile = afterXp;
       console.log('[QuestBoard SystemMessage] toggleWorkTask after gainXp', {
@@ -571,7 +724,6 @@ export default function QuestBoardScreen() {
         leveledUp: profile.level > beforeLevel,
         scheduledXpMessage,
       });
-      profile = heal(profile, getPassiveBonus(profile.level).healPerAction);
 
       const workTasks = s.daily.workTasks.map((w) =>
           w.id === id ? { ...w, done: true } : w
@@ -584,13 +736,17 @@ export default function QuestBoardScreen() {
           );
           showSystemMessage(
               'CÔNG VIỆC HOÀN THÀNH',
-              [`📜 ${task.text}`, `+${WORK_TASK_XP} XP`],
+              [`📜 ${task.text}`, `+${workXp} XP`],
               '#34d399'
           );
         });
       }
 
-      return { ...s, profile, daily: { ...s.daily, workTasks } };
+      return {
+        ...s,
+        profile,
+        daily: { ...s.daily, workTasks, focusWorkBuff: false },
+      };
     });
   };
 
@@ -614,21 +770,35 @@ export default function QuestBoardScreen() {
         leveledUp: profile.level > beforeLevel,
         scheduledXpMessage,
       });
-      profile = heal(profile, getPassiveBonus(profile.level).healPerAction);
+      const healed = healWithDailyCap(s, profile, HP_HEAL_EXERCISE);
+      profile = gainMana(healed.profile, MANA_GAIN_EXERCISE);
 
       const exercise = { ...ex, [`${key}Done`]: true };
-      let next = { ...s, profile, daily: { ...s.daily, exercise } };
+      const fullExerciseDone = exercise.runDone && exercise.pushDone && exercise.sitDone;
+      if (fullExerciseDone && !s.daily.exerciseFullManaBonus) {
+        profile = gainMana(profile, MANA_GAIN_EXERCISE_FULL_BONUS);
+      }
+      let next = {
+        ...s,
+        profile,
+        daily: {
+          ...healed.daily,
+          exercise,
+          exerciseFullManaBonus:
+            s.daily.exerciseFullManaBonus || fullExerciseDone,
+        },
+      };
       let scheduledStatMessage = false;
       if (key === 'run') {
-        const r = gainStat(next, 'endurance', 3);
+        const r = gainStat(next, 'endurance', EXERCISE_STAT_GAIN.run);
         next = r.state;
         scheduledStatMessage = r.scheduledStatMessage;
       } else if (key === 'push') {
-        const r = gainStat(next, 'strength', 3);
+        const r = gainStat(next, 'strength', EXERCISE_STAT_GAIN.push);
         next = r.state;
         scheduledStatMessage = r.scheduledStatMessage;
       } else if (key === 'sit') {
-        const r = gainStat(next, 'strength', 2);
+        const r = gainStat(next, 'strength', EXERCISE_STAT_GAIN.sit);
         next = r.state;
         scheduledStatMessage = r.scheduledStatMessage;
       }
@@ -660,14 +830,45 @@ export default function QuestBoardScreen() {
       profile = advanceStreak(profile);
       const { profile: afterXp } = gainXp(profile, GOOD_HABIT_XP);
       profile = afterXp;
-      profile = heal(profile, getPassiveBonus(profile.level).healPerAction);
+      const healed = healWithDailyCap(s, profile, HP_HEAL_GOOD_HABIT);
+      const manaGain =
+          MANA_GAIN_GOOD_HABIT +
+          (habitId === 'meditate' || habitId === 'read'
+              ? MANA_GAIN_MIND_HABIT_EXTRA
+              : 0);
+      profile = gainMana(healed.profile, manaGain);
+
+      const goodHabits = { ...s.daily.goodHabits, [habitId]: true };
+      const doneCount = Object.values(goodHabits).filter(Boolean).length;
+      const prevBonusTier = s.daily.goodHabitBonusTier ?? 0;
+      const nextBonusTier = Math.max(
+        ...Object.keys(GOOD_HABIT_BONUS_XP)
+          .map(Number)
+          .filter((tier) => doneCount >= tier),
+        0
+      );
+      if (nextBonusTier > prevBonusTier) {
+        const bonusXp = GOOD_HABIT_BONUS_XP[nextBonusTier] ?? 0;
+        const result = gainXp(profile, bonusXp);
+        profile = result.profile;
+        if (!result.scheduledXpMessage) {
+          queueMicrotask(() => {
+            showSystemMessage(
+                nextBonusTier >= 4 ? 'HABIT PERFECT' : 'CHUỖI THÓI QUEN',
+                [`Hoàn thành ${doneCount}/4 thói quen tốt`, `+${bonusXp} XP bonus`],
+                '#a78bfa'
+            );
+          });
+        }
+      }
 
       let next = {
         ...s,
         profile,
         daily: {
-          ...s.daily,
-          goodHabits: { ...s.daily.goodHabits, [habitId]: true },
+          ...healed.daily,
+          goodHabits,
+          goodHabitBonusTier: Math.max(prevBonusTier, nextBonusTier),
         },
       };
       if (habitId === 'meditate') next = gainStat(next, 'spirit', 3).state;
@@ -689,11 +890,17 @@ export default function QuestBoardScreen() {
         profile = advanceStreak(profile);
         const { profile: afterXp } = gainXp(profile, milestoneBonus.badHabitOkXp);
         profile = afterXp;
-        profile = heal(profile, getPassiveBonus(profile.level).healPerAction);
         daily.badHabits[habitId] = 'ok';
       } else if (outcome === 'fail') {
         const beforeHp = profile.hp;
-        profile = damage(profile, milestoneBonus.badHabitDamage);
+        const shielded = Boolean(profile.manaShieldActive);
+        const damageAmount = shielded
+            ? Math.ceil(milestoneBonus.badHabitDamage / 2)
+            : milestoneBonus.badHabitDamage;
+        profile = damage(
+            { ...profile, manaShieldActive: false },
+            damageAmount
+        );
         profile = applyDeathIfNeeded(profile, beforeHp);
         daily.badHabits[habitId] = 'fail';
       }
@@ -717,12 +924,13 @@ export default function QuestBoardScreen() {
           item.xp * milestoneBonus.overcomeXpMult
       );
       profile = afterXp;
-      profile = heal(profile, getPassiveBonus(profile.level).healPerAction);
+      const healed = healWithDailyCap(s, profile, HP_HEAL_OVERCOME);
+      profile = gainMana(healed.profile, MANA_GAIN_OVERCOME);
 
       const overcome = s.daily.overcome.map((q, i) =>
           i === index ? { ...q, done: true } : q
       );
-      const next = { ...s, profile, daily: { ...s.daily, overcome } };
+      const next = { ...s, profile, daily: { ...healed.daily, overcome } };
       return gainStat(next, 'wisdom', 5).state;
     });
   };
@@ -794,6 +1002,15 @@ export default function QuestBoardScreen() {
     );
   }
 
+  if (showRules) {
+    return (
+        <View style={styles.flex}>
+          <RulesScreen onClose={() => setShowRules(false)} />
+          {systemMessage}
+        </View>
+    );
+  }
+
   const { profile, daily } = state;
   const goodHabitsUi = habitsWithCustomLabels(
       GOOD_HABITS,
@@ -826,6 +1043,20 @@ export default function QuestBoardScreen() {
   const ex = daily.exercise;
   const deathDebuffActive = hasDeathDebuff(profile);
   const hpLabel = deathDebuffActive ? 'Sinh lực (HP) 🩹' : 'Sinh lực (HP)';
+  const manaMax = getManaMax(profile);
+  const mana = Math.min(manaMax, Math.max(0, Math.round(Number(profile.mana) || 0)));
+  const canFocus = mana >= MANA_SKILL_COSTS.focus && !daily.focusWorkBuff;
+  const canShield = mana >= MANA_SKILL_COSTS.shield && !profile.manaShieldActive;
+  const canPurify =
+      mana >= MANA_SKILL_COSTS.purify &&
+      (profile.lastAutoFailCount ?? 0) > 0 &&
+      !isDead(profile);
+  const penaltySummary = daily.penaltyQuest
+      ? getPenaltySummary(state.history, daily.date ?? getTodayKey())
+      : null;
+  const penaltyReason = penaltySummary
+      ? `Lý do: hôm qua hoàn thành ${penaltySummary.done}/${penaltySummary.total} mục thể dục. Cần đủ ${penaltySummary.total}/${penaltySummary.total} để tránh phạt.`
+      : 'Lý do: hôm qua chưa hoàn thành đủ mục thể dục.';
 
   return (
       <SafeAreaView style={styles.flex} edges={['top']}>
@@ -847,6 +1078,7 @@ export default function QuestBoardScreen() {
                         onPress={() => {
                           setShowStats(false);
                           setShowAiCoach(false);
+                          setShowRules(false);
                           setShowSettings(true);
                         }}
                         hitSlop={14}
@@ -859,6 +1091,7 @@ export default function QuestBoardScreen() {
                         onPress={() => {
                           setShowStats(false);
                           setShowSettings(false);
+                          setShowRules(false);
                           setShowAiCoach(true);
                         }}
                         hitSlop={14}
@@ -871,6 +1104,7 @@ export default function QuestBoardScreen() {
                         onPress={() => {
                           setShowSettings(false);
                           setShowAiCoach(false);
+                          setShowRules(false);
                           setShowStats(true);
                         }}
                         hitSlop={14}
@@ -879,11 +1113,29 @@ export default function QuestBoardScreen() {
                       <Text style={styles.heroIcon}>📊</Text>
                       <Text style={styles.heroIconLabel}>THỐNG KÊ</Text>
                     </Pressable>
+                    <Pressable
+                        onPress={() => {
+                          setShowSettings(false);
+                          setShowAiCoach(false);
+                          setShowStats(false);
+                          setShowRules(true);
+                        }}
+                        hitSlop={14}
+                        style={styles.heroIconBtn}
+                    >
+                      <Text style={styles.heroIcon}>📜</Text>
+                      <Text style={styles.heroIconLabel}>LUẬT</Text>
+                    </Pressable>
                   </View>
                 </View>
 
                 <View style={styles.headerBottom}>
-                  <Text style={styles.brand}>⚔️ QuestBoard</Text>
+                  <Image
+                    source={IMG.homeLogo}
+                    style={styles.brandLogo}
+                    resizeMode="contain"
+                    accessibilityLabel="QuestBoard"
+                  />
                   <Text style={styles.tagline}>
                     Nhiệm vụ hằng ngày · Phong cách RPG
                   </Text>
@@ -922,6 +1174,40 @@ export default function QuestBoardScreen() {
                       trackColor="#1a2820"
                       rightLabel={`${Math.round(profile.hp)}/${currentPassiveBonus.maxHp} HP`}
                   />
+                  <BarMeter
+                      label="Mana"
+                      value={mana}
+                      max={manaMax}
+                      color="#38bdf8"
+                      trackColor="#102033"
+                      rightLabel={`${mana}/${manaMax} MP`}
+                  />
+                  <View style={styles.manaSkillGrid}>
+                    <Pressable
+                        onPress={castFocus}
+                        disabled={!canFocus}
+                        style={[styles.manaSkillBtn, !canFocus && styles.manaSkillDisabled]}
+                    >
+                      <Text style={styles.manaSkillText}>Tập trung</Text>
+                      <Text style={styles.manaSkillCost}>-{MANA_SKILL_COSTS.focus} MP</Text>
+                    </Pressable>
+                    <Pressable
+                        onPress={castShield}
+                        disabled={!canShield}
+                        style={[styles.manaSkillBtn, !canShield && styles.manaSkillDisabled]}
+                    >
+                      <Text style={styles.manaSkillText}>Khiên</Text>
+                      <Text style={styles.manaSkillCost}>-{MANA_SKILL_COSTS.shield} MP</Text>
+                    </Pressable>
+                    <Pressable
+                        onPress={castPurify}
+                        disabled={!canPurify}
+                        style={[styles.manaSkillBtn, !canPurify && styles.manaSkillDisabled]}
+                    >
+                      <Text style={styles.manaSkillText}>Thanh tẩy</Text>
+                      <Text style={styles.manaSkillCost}>-{MANA_SKILL_COSTS.purify} MP</Text>
+                    </Pressable>
+                  </View>
                   {isDead(profile) ? (
                     <Pressable
                         style={styles.reviveBtn}
@@ -952,13 +1238,14 @@ export default function QuestBoardScreen() {
             {daily.penaltyQuest ? (
                 <View style={styles.penaltySection}>
                   <Text style={styles.penaltyTitle}>⚠️ NHIỆM VỤ PHẠT</Text>
+                  <Text style={styles.penaltyReason}>{penaltyReason}</Text>
                   <Text style={styles.penaltyText}>{daily.penaltyQuest.text}</Text>
                   <View style={styles.penaltyActions}>
                     <Pressable style={styles.penaltyBtnComplete} onPress={handlePenaltyComplete}>
                       <Text style={styles.penaltyBtnText}>HOÀN THÀNH</Text>
                     </Pressable>
                     <Pressable style={styles.penaltyBtnSkip} onPress={handlePenaltySkip}>
-                      <Text style={styles.penaltyBtnText}>BỎ QUA (-20 HP)</Text>
+                      <Text style={styles.penaltyBtnText}>BỎ QUA (-{PENALTY_HP_COST} HP)</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -1057,22 +1344,13 @@ export default function QuestBoardScreen() {
             {/* [4] ROW 4 CARD DỌC FULL-WIDTH CHỮA BLENDING NGHỆ THUẬT */}
             <View style={styles.colThreeCards}>
               {/* Thẻ 1: Thể dục */}
-              <View style={[styles.cardThreeContainerFull, { borderColor: '#1d1d36' }]}>
-                {/* Right Image */}
-                <Image source={IMG.exercise} style={styles.cardRightImage} />
-                {/* Blend Gradient Overlay */}
-                <View style={styles.blendContainer}>
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.95 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.85 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.75 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.65 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.55 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.45 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.35 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.25 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.15 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.05 }} />
-                </View>
+              <ImageBackground
+                  source={IMG.exercise}
+                  style={[styles.cardThreeContainerFull, { borderColor: '#1d1d36' }]}
+                  imageStyle={styles.cardFullBgImage}
+                  resizeMode="cover"
+              >
+                <View style={styles.cardFullBgOverlay} />
 
                 {/* Left Content */}
                 <View style={styles.cardLeftContent}>
@@ -1107,30 +1385,21 @@ export default function QuestBoardScreen() {
                       />
                     </View>
                   </View>
-                  <Text style={styles.cardFootnote}>Mỗi phần: +{Math.floor(EXERCISE_FULL_XP / 3)} XP cơ bản (× chuỗi)</Text>
+                  <Text style={styles.cardFootnote}>Mỗi phần: +{Math.floor(EXERCISE_FULL_XP / 3)} XP · +{HP_HEAL_EXERCISE} HP</Text>
                 </View>
-              </View>
+              </ImageBackground>
 
               {/* Purple Decorative Divider */}
               <RPGDivider color="#7b4fd4" />
 
               {/* Thẻ 2: Thói quen tốt */}
-              <View style={[styles.cardThreeContainerFull, { borderColor: '#2b1d4a' }]}>
-                {/* Right Image */}
-                <Image source={IMG.habitGood} style={styles.cardRightImage} />
-                {/* Blend Gradient Overlay */}
-                <View style={styles.blendContainer}>
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.95 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.85 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.75 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.65 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.55 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.45 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.35 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.25 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.15 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.05 }} />
-                </View>
+              <ImageBackground
+                  source={IMG.habitGood}
+                  style={[styles.cardThreeContainerFull, { borderColor: '#2b1d4a' }]}
+                  imageStyle={styles.cardFullBgImage}
+                  resizeMode="cover"
+              >
+                <View style={styles.cardFullBgOverlay} />
 
                 {/* Left Content */}
                 <View style={styles.cardLeftContent}>
@@ -1161,30 +1430,21 @@ export default function QuestBoardScreen() {
                       );
                     })}
                   </View>
-                  <Text style={styles.cardFootnote}>Mỗi thói quen: +{GOOD_HABIT_XP} XP · +{currentPassiveBonus.healPerAction} HP</Text>
+                  <Text style={styles.cardFootnote}>Mỗi thói quen: +{GOOD_HABIT_XP} XP · +{HP_HEAL_GOOD_HABIT} HP (cap +{HP_DAILY_HEAL_CAP}/ngày)</Text>
                 </View>
-              </View>
+              </ImageBackground>
 
               {/* Purple Decorative Divider */}
               <RPGDivider color="#7b4fd4" />
 
               {/* Thẻ 3: Bỏ thói quen xấu */}
-              <View style={[styles.cardThreeContainerFull, { borderColor: '#4a1d1d' }]}>
-                {/* Right Image */}
-                <Image source={IMG.habitBad} style={styles.cardRightImage} />
-                {/* Blend Gradient Overlay */}
-                <View style={styles.blendContainer}>
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.95 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.85 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.75 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.65 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.55 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.45 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.35 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.25 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.15 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.05 }} />
-                </View>
+              <ImageBackground
+                  source={IMG.habitBad}
+                  style={[styles.cardThreeContainerFull, { borderColor: '#4a1d1d' }]}
+                  imageStyle={styles.cardFullBgImage}
+                  resizeMode="cover"
+              >
+                <View style={styles.cardFullBgOverlay} />
 
                 {/* Left Content */}
                 <View style={styles.cardLeftContent}>
@@ -1236,34 +1496,25 @@ export default function QuestBoardScreen() {
                     Tránh thành công: +{currentMilestoneBonus.badHabitOkXp} XP · Thất bại: −{currentMilestoneBonus.badHabitDamage} HP
                   </Text>
                 </View>
-              </View>
+              </ImageBackground>
 
               {/* Gold Decorative Divider */}
               <RPGDivider color="#f5c842" />
 
               {/* Thẻ 4: Vượt qua bản thân */}
-              <View style={[styles.cardThreeContainerFull, { borderColor: '#4a3b1d', marginBottom: 0 }]}>
-                {/* Right Image */}
-                <Image source={IMG.challenge} style={styles.cardRightImage} />
-                {/* Blend Gradient Overlay */}
-                <View style={styles.blendContainer}>
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.95 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.85 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.75 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.65 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.55 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.45 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.35 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.25 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.15 }} />
-                  <View style={{ flex: 1, backgroundColor: COLORS.card, opacity: 0.05 }} />
-                </View>
+              <ImageBackground
+                  source={IMG.challenge}
+                  style={[styles.cardThreeContainerFull, { borderColor: '#4a3b1d', marginBottom: 0 }]}
+                  imageStyle={styles.cardFullBgImage}
+                  resizeMode="cover"
+              >
+                <View style={styles.cardFullBgOverlay} />
 
                 {/* Left Content */}
                 <View style={styles.cardLeftContent}>
                   <View style={styles.cardHeader}>
                     <Text style={[styles.cardTitle, { color: COLORS.gold }]}>🐉 VƯỢT QUA BẢN THÂN</Text>
-                    <Text style={styles.cardSubtitle}>Quest tùy chọn — XP cao hơn</Text>
+                    <Text style={styles.cardSubtitle}>Quest tùy chọn — XP cao hơn · +{HP_HEAL_OVERCOME} HP</Text>
                   </View>
 
                   <View style={styles.cardContent}>
@@ -1291,7 +1542,7 @@ export default function QuestBoardScreen() {
                     ))}
                   </View>
                 </View>
-              </View>
+              </ImageBackground>
 
             </View>
 
@@ -1346,12 +1597,12 @@ const styles = StyleSheet.create({
   },
   heroActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 9,
   },
   heroIconBtn: {
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 50,
+    minWidth: 46,
   },
   heroIcon: {
     fontSize: 24,
@@ -1372,6 +1623,11 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.85)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 3,
+  },
+  brandLogo: {
+    width: 280,
+    maxWidth: '88%',
+    aspectRatio: 1492 / 632,
   },
   tagline: {
     color: COLORS.textSecondary,
@@ -1417,6 +1673,36 @@ const styles = StyleSheet.create({
   levelBars: {
     gap: 4,
     marginBottom: 8,
+  },
+  manaSkillGrid: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  manaSkillBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#38bdf8',
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderRadius: 8,
+    paddingVertical: 6,
+    alignItems: 'center',
+    minHeight: 42,
+  },
+  manaSkillDisabled: {
+    opacity: 0.42,
+  },
+  manaSkillText: {
+    color: '#dff7ff',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  manaSkillCost: {
+    color: '#8ecae6',
+    fontSize: 8,
+    marginTop: 2,
+    fontWeight: '700',
   },
   diffHint: {
     color: COLORS.textSecondary,
@@ -1629,27 +1915,21 @@ const styles = StyleSheet.create({
     position: 'relative',
     minHeight: 180,
   },
-  cardRightImage: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: '45%',
-    height: '100%',
-    resizeMode: 'cover',
-    borderTopRightRadius: 11,
-    borderBottomRightRadius: 11,
+  cardFullBgImage: {
+    borderRadius: 11,
+    left: 18,
+    transform: [{ scale: 1.08 }],
   },
-  blendContainer: {
+  cardFullBgOverlay: {
     position: 'absolute',
     top: 0,
+    right: 0,
     bottom: 0,
-    left: '50%',
-    width: '15%',
-    flexDirection: 'row',
+    left: 0,
+    backgroundColor: 'rgba(5, 6, 18, 0.76)',
   },
   cardLeftContent: {
-    width: '60%',
+    width: '100%',
     zIndex: 2,
   },
   cardHeader: {
@@ -1795,6 +2075,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 12,
     fontWeight: '700',
+  },
+  penaltyReason: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 8,
   },
   penaltyActions: {
     flexDirection: 'row',

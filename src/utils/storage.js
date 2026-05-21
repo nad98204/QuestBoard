@@ -10,7 +10,13 @@ import {
   query,
   setDoc,
 } from 'firebase/firestore';
-import { STORAGE_KEY, GOOD_HABITS, BAD_HABITS } from './constants';
+import {
+  DEATH_DEBUFF_HOURS,
+  DEATH_XP_PENALTY,
+  STORAGE_KEY,
+  GOOD_HABITS,
+  BAD_HABITS,
+} from './constants';
 import {
   attachPreferencesToState,
   loadPreferencesBundle,
@@ -19,14 +25,11 @@ import {
 import { db } from './firebase';
 import { getUserDocumentId } from './deviceId';
 import {
-  fetchOvercomeQuestsFromGemini,
-  getVietnameseWeekdayName,
-} from './gemini';
-import {
   addDaysToKey,
   bumpDifficulty,
   createDefaultStats,
   DEFAULT_FITNESS_CONFIG,
+  getStatMilestoneBonus,
   normalizeFitnessConfig,
   normalizeStats,
   getTodayKey,
@@ -35,10 +38,15 @@ import {
 } from './rpg';
 import { checkAndUnlockAchievements } from './achievements';
 import {
+  fetchDailyFitnessFromAI,
   fetchDailyHabitsFromAI,
+  fetchDailyOvercomeFromAI,
+  getFitnessBounds,
   getDefaultDailyHabitsPayload,
   getOpenAiApiKey,
+  readCachedDailyFitnessPayload,
   readCachedDailyHabitsPayload,
+  readCachedDailyOvercomePayload,
 } from './aiCoach';
 
 const USERS_COLLECTION = 'users';
@@ -47,162 +55,98 @@ const BACKUP_SNAPSHOTS_COLLECTION = 'snapshots';
 const MAX_BACKUPS = 5;
 const AI_COACH_MAX = 50;
 const PENDING_FIRESTORE_KEY = '@questboard/firestore_pending';
-const AI_OVERCOME_CACHE_KEY = '@questboard/ai_overcome_by_date_v1';
 
-function getGeminiApiKey() {
-  return (
-    (typeof process !== 'undefined' &&
-      process.env &&
-      process.env.EXPO_PUBLIC_GEMINI_API_KEY) ||
-    ''
+function getVietnameseWeekdayName(date = new Date()) {
+  return [
+    'Chủ nhật',
+    'Thứ hai',
+    'Thứ ba',
+    'Thứ tư',
+    'Thứ năm',
+    'Thứ sáu',
+    'Thứ bảy',
+  ][date.getDay()];
+}
+
+function removeAiOvercomeQuests(state) {
+  const today = state.daily?.date;
+  const overcome = state.daily?.overcome;
+  if (!today || !Array.isArray(overcome)) return state;
+  const hasAiOvercome = overcome.some((q) =>
+    String(q?.id ?? '').startsWith('ai-')
   );
-}
+  if (!hasAiOvercome) return state;
 
-function isAiOvercomePersistedForDay(overcome, today) {
-  if (!Array.isArray(overcome) || overcome.length !== 3) return false;
-  const prefix = `ai-${today}-`;
-  return overcome.every(
-    (q, i) => typeof q?.id === 'string' && q.id === `${prefix}${i}`
-  );
-}
-
-function clampOvercomeXp(xp) {
-  const v = Math.round(Number(xp));
-  if (!Number.isFinite(v)) return 60;
-  return Math.min(150, Math.max(60, v));
-}
-
-function buildOvercomeFromAiList(rows, today) {
-  return rows.map((row, i) => ({
-    id: `ai-${today}-${i}`,
-    title: row.title,
-    xp: clampOvercomeXp(row.xp),
-    done: false,
+  const local = pickOvercomeQuests(today, 3).map((q, i) => ({
+    ...q,
+    done: Boolean(overcome[i]?.done),
   }));
+  return {
+    ...state,
+    daily: {
+      ...state.daily,
+      overcome: local,
+    },
+  };
 }
 
-async function readAiOvercomeCache() {
-  try {
-    const raw = await AsyncStorage.getItem(AI_OVERCOME_CACHE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
+function applyAiDailyOvercomePayload(state, payload) {
+  const prev = Array.isArray(state.daily?.overcome) ? state.daily.overcome : [];
+  const quests = payload.quests.map((q, i) => ({
+    ...q,
+    done: Boolean(prev[i]?.done),
+  }));
+  return {
+    ...state,
+    daily: {
+      ...state.daily,
+      overcome: quests,
+    },
+  };
 }
 
-async function writeAiOvercomeCache(today, minimalQuests) {
-  const cache = await readAiOvercomeCache();
-  cache[today] = minimalQuests.map((q) => ({ title: q.title, xp: q.xp }));
-  await AsyncStorage.setItem(AI_OVERCOME_CACHE_KEY, JSON.stringify(cache));
-}
-
-/** Giữ cache theo ngày; ghép cờ done từ state đã lưu nếu cùng id. */
-async function hydrateAiOvercomeQuests(state) {
-  const envKeyDefined =
-    typeof process !== 'undefined' &&
-    process.env &&
-    Boolean(process.env.EXPO_PUBLIC_GEMINI_API_KEY);
-  console.log(
-    '[hydrateAiOvercomeQuests] EXPO_PUBLIC_GEMINI_API_KEY có tồn tại:',
-    envKeyDefined
-  );
-
+async function hydrateAiDailyOvercome(state) {
   const today = state.daily?.date;
   if (!today) {
-    console.log('[hydrateAiOvercomeQuests] bỏ qua — không có daily.date');
+    console.log('[hydrateAiDailyOvercome] bo qua - khong co daily.date');
     return state;
   }
 
-  const overcome = state.daily.overcome;
-  const alreadyAiPersisted = isAiOvercomePersistedForDay(overcome, today);
-  console.log('[hydrateAiOvercomeQuests] check', {
-    today,
-    alreadyAiPersisted,
-  });
+  const overcome = state.daily?.overcome;
+  const alreadyOpenAi = Array.isArray(overcome) && overcome.every((q) =>
+    String(q?.id ?? '').startsWith(`openai-overcome-${today}-`)
+  );
+  if (alreadyOpenAi) return state;
 
-  if (alreadyAiPersisted) {
-    console.log(
-      '[hydrateAiOvercomeQuests] giữ state — đã persist 3 quest AI cho ngày này'
-    );
-    return state;
+  const cached = await readCachedDailyOvercomePayload(today);
+  if (cached) {
+    console.log('[hydrateAiDailyOvercome] dung cache', today);
+    return applyAiDailyOvercomePayload(state, cached);
   }
 
-  const cache = await readAiOvercomeCache();
-  const cached = cache[today];
-  const cacheHit = Array.isArray(cached) && cached.length === 3;
-  console.log('[hydrateAiOvercomeQuests] cache cho ngày', {
-    today,
-    cacheHit,
-    cachedLength: Array.isArray(cached) ? cached.length : 0,
-  });
-
-  if (cacheHit) {
-    const built = buildOvercomeFromAiList(
-      cached.map((c) => ({
-        title: String(c.title ?? c.name ?? '').trim(),
-        xp: clampOvercomeXp(c.xp),
-      })),
-      today
-    );
-    const prevById = Object.fromEntries(
-      (overcome || []).filter((q) => q?.id).map((q) => [q.id, q.done])
-    );
-    const merged = built.map((q) => ({
-      ...q,
-      done: Boolean(prevById[q.id]),
-    }));
-    return { ...state, daily: { ...state.daily, overcome: merged } };
-  }
-
-  const apiKey = getGeminiApiKey();
-  const hasApiKey = Boolean(apiKey);
-  console.log('[hydrateAiOvercomeQuests] trước khi gọi Gemini', {
-    today,
-    alreadyAiPersisted: false,
-    cacheHit: false,
-    envKeyDefined,
-    hasApiKey,
-    sẽGọiGemini: hasApiKey,
-    streak: state.profile.streak,
-    level: state.profile.level,
-    weekdayLabel: getVietnameseWeekdayName(),
-  });
-
+  const apiKey = getOpenAiApiKey();
   if (!apiKey) {
     console.log(
-      '[hydrateAiOvercomeQuests] không gọi Gemini — thiếu apiKey (kiểm tra .env / EXPO_PUBLIC_)'
+      '[hydrateAiDailyOvercome] thieu EXPO_PUBLIC_OPENAI_API_KEY - giu pool noi bo'
     );
     return state;
   }
 
   try {
-    const rows = await fetchOvercomeQuestsFromGemini({
+    const payload = await fetchDailyOvercomeFromAI({
       apiKey,
       weekdayLabel: getVietnameseWeekdayName(),
       dateKey: today,
-      streak: state.profile.streak,
-      level: state.profile.level,
+      history: state.history,
+      daily: state.daily,
+      profile: state.profile,
     });
-    await writeAiOvercomeCache(today, rows);
-    const built = buildOvercomeFromAiList(rows, today);
-    const prevById = Object.fromEntries(
-      (overcome || []).filter((q) => q?.id).map((q) => [q.id, q.done])
-    );
-    const merged = built.map((q) => ({
-      ...q,
-      done: Boolean(prevById[q.id]),
-    }));
-    return { ...state, daily: { ...state.daily, overcome: merged } };
+    return applyAiDailyOvercomePayload(state, payload);
   } catch (err) {
-    console.error('[hydrateAiOvercomeQuests] lỗi sau khi gọi Gemini', {
+    console.error('[hydrateAiDailyOvercome] loi', {
       message: err?.message,
       name: err?.name,
-      stack: err?.stack,
-      cause: err?.cause,
     });
-    console.error('[hydrateAiOvercomeQuests] lỗi (raw):', err);
     return state;
   }
 }
@@ -215,6 +159,76 @@ function applyAiDailyHabitsPayload(state, payload) {
     goodHabitIcons: payload.goodHabits.map((h) => h.icon),
     badHabitIcons: payload.badHabits.map((h) => h.icon),
   };
+}
+
+function hasStartedExercise(exercise) {
+  return Boolean(exercise?.runDone || exercise?.pushDone || exercise?.sitDone);
+}
+
+function applyAiDailyFitnessPayload(state, payload) {
+  return {
+    ...state,
+    daily: {
+      ...state.daily,
+      exercise: {
+        ...state.daily.exercise,
+        ...payload,
+        runDone: Boolean(state.daily.exercise?.runDone),
+        pushDone: Boolean(state.daily.exercise?.pushDone),
+        sitDone: Boolean(state.daily.exercise?.sitDone),
+      },
+    },
+  };
+}
+
+async function hydrateAiDailyFitness(state) {
+  const today = state.daily?.date;
+  if (!today) {
+    console.log('[hydrateAiDailyFitness] bo qua - khong co daily.date');
+    return state;
+  }
+
+  const exercise = state.daily?.exercise ?? {};
+  if (exercise.aiFitnessDate === today || hasStartedExercise(exercise)) {
+    return state;
+  }
+
+  const bounds = getFitnessBounds(
+    state.fitnessConfig ?? DEFAULT_FITNESS_CONFIG,
+    state.profile?.difficultyMult ?? 1
+  );
+  const cached = await readCachedDailyFitnessPayload(today, exercise, bounds);
+  if (cached) {
+    console.log('[hydrateAiDailyFitness] dung cache', today);
+    return applyAiDailyFitnessPayload(state, cached);
+  }
+
+  const apiKey = getOpenAiApiKey();
+  if (!apiKey) {
+    console.log(
+      '[hydrateAiDailyFitness] thieu EXPO_PUBLIC_OPENAI_API_KEY - giu random hien tai'
+    );
+    return state;
+  }
+
+  try {
+    const payload = await fetchDailyFitnessFromAI({
+      apiKey,
+      weekdayLabel: getVietnameseWeekdayName(),
+      dateKey: today,
+      history: state.history,
+      profile: state.profile,
+      fitnessConfig: state.fitnessConfig ?? DEFAULT_FITNESS_CONFIG,
+      fallbackExercise: exercise,
+    });
+    return applyAiDailyFitnessPayload(state, payload);
+  } catch (err) {
+    console.error('[hydrateAiDailyFitness] loi', {
+      message: err?.message,
+      name: err?.name,
+    });
+    return state;
+  }
 }
 
 /** Cache → API OpenAI 1 lần/ngày; lỗi thì dùng GOOD_HABITS/BAD_HABITS mặc định */
@@ -263,6 +277,7 @@ const DEFAULT_PROFILE = () => ({
   totalXpEarned: 0,
   hp: 100,
   maxHp: 100,
+  mana: 50,
   streak: 0,
   lastQuestDate: null,
   difficultyMult: 1,
@@ -277,6 +292,59 @@ const DEFAULT_PROFILE = () => ({
 });
 
 const MAX_HISTORY_DAYS = 30;
+const BAD_HABIT_KEYS = ['no_social', 'no_junk', 'no_delay'];
+
+function applyDeathToProfile(profile) {
+  const xpInLevel = Math.max(
+    0,
+    Math.floor((profile?.xpInLevel ?? 0) * (1 - DEATH_XP_PENALTY))
+  );
+  return {
+    ...profile,
+    streak: 0,
+    xpInLevel,
+    deathDebuffUntil: Date.now() + DEATH_DEBUFF_HOURS * 60 * 60 * 1000,
+    hp: 0,
+  };
+}
+
+function closeUnreportedBadHabits(state) {
+  const daily = state?.daily;
+  if (!daily?.badHabits) return state;
+  const missing = BAD_HABIT_KEYS.filter((key) => daily.badHabits?.[key] == null);
+  if (missing.length <= 0) return state;
+
+  const milestoneBonus = getStatMilestoneBonus(state.profile?.stats);
+  const damage = missing.length * milestoneBonus.badHabitDamage;
+  const beforeHp = Number(state.profile?.hp) || 0;
+  let profile = {
+    ...state.profile,
+    hp: Math.max(0, beforeHp - damage),
+    lastAutoFailCount: (state.profile?.lastAutoFailCount ?? 0) + missing.length,
+    lastAutoFailDamage: (state.profile?.lastAutoFailDamage ?? 0) + damage,
+    lastAutoFailDamageEach: milestoneBonus.badHabitDamage,
+    lastAutoFailDate: daily.date,
+  };
+  if (beforeHp > 0 && profile.hp <= 0) {
+    profile = applyDeathToProfile(profile);
+  }
+
+  const badHabits = { ...daily.badHabits };
+  for (const key of missing) {
+    badHabits[key] = 'fail';
+  }
+
+  return {
+    ...state,
+    profile,
+    daily: {
+      ...daily,
+      badHabits,
+      badHabitAutoFailCount: (daily.badHabitAutoFailCount ?? 0) + missing.length,
+      badHabitAutoFailDamage: (daily.badHabitAutoFailDamage ?? 0) + damage,
+    },
+  };
+}
 
 /** Ảnh chụp tiến độ quest trong ngày (cho history & tỉ lệ). */
 export function snapshotDailyForHistory(daily) {
@@ -289,12 +357,14 @@ export function snapshotDailyForHistory(daily) {
   const habitKeys = ['sleep', 'water', 'meditate', 'read'];
   const habitGoodDone = habitKeys.filter((k) => daily.goodHabits?.[k]).length;
   const habitGoodTotal = habitKeys.length;
-  const badKeys = ['no_social', 'no_junk', 'no_delay'];
-  const habitBadOk = badKeys.filter((k) => daily.badHabits?.[k] === 'ok').length;
-  const habitBadTotal = badKeys.length;
+  const habitBadOk = BAD_HABIT_KEYS.filter((k) => daily.badHabits?.[k] === 'ok').length;
+  const habitBadTotal = BAD_HABIT_KEYS.length;
   const overcome = daily.overcome ?? [];
   const overcomeDone = overcome.filter((q) => q.done).length;
   const overcomeTotal = overcome.length > 0 ? overcome.length : 3;
+  const overcomeTitles = overcome
+    .map((q) => String(q?.title ?? '').trim())
+    .filter(Boolean);
 
   const questsDone =
     workDone +
@@ -314,6 +384,7 @@ export function snapshotDailyForHistory(daily) {
     habitBadTotal,
     overcomeDone,
     overcomeTotal,
+    overcomeTitles,
     questsDone,
     readDone: !!daily.goodHabits?.read,
   };
@@ -353,6 +424,10 @@ export function mergeHistoryIntoState(state) {
     habitBadTotal: Math.max(prevRow?.habitBadTotal ?? 0, snap.habitBadTotal),
     overcomeDone: Math.max(prevRow?.overcomeDone ?? 0, snap.overcomeDone),
     overcomeTotal: Math.max(prevRow?.overcomeTotal ?? 0, snap.overcomeTotal),
+    overcomeTitles:
+      snap.overcomeTitles.length > 0
+        ? snap.overcomeTitles
+        : (Array.isArray(prevRow?.overcomeTitles) ? prevRow.overcomeTitles : []),
     readDone: !!(prevRow?.readDone || snap.readDone),
   };
 
@@ -427,6 +502,7 @@ function freshDailyPayload(today, difficultyMult, fitnessConfig) {
       ['no_social', 'no_junk', 'no_delay'].map((k) => [k, null])
     ),
     overcome: pickOvercomeQuests(today, 3),
+    hpHealedToday: 0,
   };
 }
 
@@ -517,6 +593,7 @@ function migrateParsed(data) {
     lifetimeOvercomeCompleted:
       data.profile?.lifetimeOvercomeCompleted ?? 0,
     stats: normalizeStats(data.profile?.stats),
+    mana: Math.max(0, Math.round(Number(data.profile?.mana) || 50)),
   };
   const rawHist = Array.isArray(data.history) ? data.history : [];
   const history = rawHist
@@ -583,13 +660,14 @@ function toPersistedPayload(state) {
 /** Ngày mới — dùng fitnessConfig trong state */
 export function rollNewDayIfNeeded(state) {
   const today = getTodayKey();
-  let { profile, daily, updatedAt } = state;
+  let workingState = state;
+  let { profile, daily, updatedAt } = workingState;
   const fc = state.fitnessConfig ?? DEFAULT_FITNESS_CONFIG;
 
   if (profile.lastDailyDate === today) {
-    if (daily && daily.date === today) return state;
+    if (daily && daily.date === today) return workingState;
     return {
-      ...state,
+      ...workingState,
       profile,
       daily: freshDailyPayload(today, profile.difficultyMult, fc),
       updatedAt,
@@ -606,12 +684,16 @@ export function rollNewDayIfNeeded(state) {
       todayXpBaseline: profile.totalXpEarned,
     };
     return {
-      ...state,
+      ...workingState,
       profile,
       daily: freshDailyPayload(today, mult, fc),
       updatedAt,
     };
   }
+
+  workingState = closeUnreportedBadHabits(workingState);
+  profile = workingState.profile;
+  daily = workingState.daily;
 
   while (cursor !== today) {
     mult = bumpDifficulty(mult);
@@ -627,7 +709,7 @@ export function rollNewDayIfNeeded(state) {
   };
 
   daily = freshDailyPayload(today, mult, fc);
-  return { ...state, profile, daily, updatedAt };
+  return { ...workingState, profile, daily, updatedAt };
 }
 
 export function resetTodayQuests(state) {
@@ -791,9 +873,10 @@ export async function loadState() {
   const prefs = await loadPreferencesBundle();
   merged = attachPreferencesToState(merged, prefs);
 
-  const rolled = rollNewDayIfNeeded(merged);
-  const withAi = await hydrateAiOvercomeQuests(rolled);
-  const withHabitsAi = await hydrateAiDailyHabits(withAi);
+  const rolled = removeAiOvercomeQuests(rollNewDayIfNeeded(merged));
+  const withFitnessAi = await hydrateAiDailyFitness(rolled);
+  const withOvercomeAi = await hydrateAiDailyOvercome(withFitnessAi);
+  const withHabitsAi = await hydrateAiDailyHabits(withOvercomeAi);
 
   try {
     await AsyncStorage.setItem(

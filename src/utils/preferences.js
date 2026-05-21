@@ -1,15 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BAD_HABITS, GOOD_HABITS, STORAGE_KEY } from './constants';
-import { AI_COACH_HISTORY_KEY, AI_HABITS_CACHE_KEY } from './aiCoach';
+import {
+  AI_COACH_HISTORY_KEY,
+  AI_FITNESS_CACHE_KEY,
+  AI_HABITS_CACHE_KEY,
+  AI_OVERCOME_CACHE_KEY,
+} from './aiCoach';
 import { DEFAULT_FITNESS_CONFIG, normalizeFitnessConfig } from './rpg';
 
 /** Tất cả key AsyncStorage QuestBoard — dùng khi reset */
 export const QUESTBOARD_ASYNC_STORAGE_KEYS = [
   STORAGE_KEY,
   '@questboard/firestore_pending',
-  '@questboard/ai_overcome_by_date_v1',
   AI_COACH_HISTORY_KEY,
   AI_HABITS_CACHE_KEY,
+  AI_FITNESS_CACHE_KEY,
+  AI_OVERCOME_CACHE_KEY,
   '@questboard/notification_settings_v1',
   '@questboard/notifications_first_prompt_v1',
   '@questboard/user_firestore_doc_id',

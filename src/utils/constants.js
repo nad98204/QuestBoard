@@ -2,16 +2,42 @@ export const STORAGE_KEY = '@questboard/state_v1';
 
 export const WORK_TASK_XP = 20;
 export const GOOD_HABIT_XP = 15;
+export const GOOD_HABIT_BONUS_XP = {
+  2: 10,
+  3: 20,
+  4: 35,
+};
 export const EXERCISE_FULL_XP = 45;
+export const EXERCISE_STAT_GAIN = {
+  run: 8,
+  push: 6,
+  sit: 4,
+};
 export const BAD_HABIT_SUCCESS_XP = 12;
 export const OVERCOME_XP = { easy: 60, normal: 100, hard: 150 };
 
-export const HP_HEAL_ON_COMPLETE = 3;
-export const HP_DAMAGE_BAD_HABIT = 18;
-export const DEATH_XP_PENALTY = 0.2;
+export const HP_DAILY_HEAL_CAP = 20;
+export const HP_HEAL_GOOD_HABIT = 2;
+export const HP_HEAL_EXERCISE = 3;
+export const HP_HEAL_OVERCOME = 5;
+export const HP_HEAL_PENALTY_COMPLETE = 12;
+export const HP_DAMAGE_BAD_HABIT = 25;
+export const HP_DAMAGE_BAD_HABIT_REDUCED = 18;
+export const DEATH_XP_PENALTY = 0.3;
 export const DEATH_DEBUFF_HOURS = 24;
-export const DEATH_DEBUFF_XP_MULT = 0.8;
-export const REVIVAL_HP = 30;
+export const DEATH_DEBUFF_XP_MULT = 0.7;
+export const REVIVAL_HP = 25;
+export const MANA_BASE_MAX = 50;
+export const MANA_GAIN_GOOD_HABIT = 5;
+export const MANA_GAIN_MIND_HABIT_EXTRA = 3;
+export const MANA_GAIN_EXERCISE = 5;
+export const MANA_GAIN_EXERCISE_FULL_BONUS = 15;
+export const MANA_GAIN_OVERCOME = 10;
+export const MANA_SKILL_COSTS = {
+  focus: 30,
+  shield: 40,
+  purify: 60,
+};
 
 export const STATS = {
   strength: {
@@ -109,7 +135,7 @@ export const OVERCOME_POOL = [
 export const DIFFICULTY_DAILY_MULT = 1.0001;
 
 export const PENALTY_THRESHOLD = 0.5;
-export const PENALTY_HP_COST = 20;
+export const PENALTY_HP_COST = 35;
 export const PENALTY_QUESTS = [
   "Hoàn thành 30 hít đất liên tục",
   "Chạy bộ 2km không nghỉ", 

@@ -7,7 +7,8 @@ import {
   OVERCOME_XP,
   REVIVAL_HP,
   STATS,
-  PENALTY_THRESHOLD,
+  HP_DAMAGE_BAD_HABIT,
+  HP_DAMAGE_BAD_HABIT_REDUCED,
   PENALTY_QUESTS,
 } from './constants';
 
@@ -90,7 +91,7 @@ export function getCharacterTitle(level) {
 export function getPassiveBonus(level) {
   return {
     maxHp: 100 + (level >= 30 ? 20 : 0) + (level >= 5 ? 10 : 0),
-    healPerAction: level >= 10 ? 4 : 3,
+    healPerAction: 0,
     xpBonus: level >= 20 ? 1.05 : 1.0,
     statBonusCap: level >= 50 ? 2.0 : 1.5,
   };
@@ -165,7 +166,10 @@ export function getStatBonus(profile) {
 export function getStatMilestoneBonus(stats) {
   const normalized = normalizeStats(stats);
   return {
-    badHabitDamage: normalized.spirit.level >= 5 ? 14 : 18,
+    badHabitDamage:
+      normalized.spirit.level >= 5
+        ? HP_DAMAGE_BAD_HABIT_REDUCED
+        : HP_DAMAGE_BAD_HABIT,
     badHabitOkXp: normalized.discipline.level >= 5 ? 16 : 12,
     overcomeXpMult: normalized.wisdom.level >= 5 ? 1.1 : 1.0,
     strengthFitnessX2: normalized.strength.level >= 10,
@@ -378,19 +382,27 @@ export function bumpDifficulty(prevMult) {
 }
 
 export function checkPenaltyNeeded(history, todayKey) {
-  if (!Array.isArray(history)) return false;
+  const summary = getPenaltySummary(history, todayKey);
+  return !!summary?.needed;
+}
+
+export function getPenaltySummary(history, todayKey) {
+  if (!Array.isArray(history)) return null;
   const yKey = addDaysToKey(todayKey, -1);
   const yRow = history.find((h) => h.date === yKey);
-  if (!yRow) return false;
-  const total =
-    (yRow.workTotal || 0) +
-    (yRow.exerciseTotal || 0) +
-    (yRow.habitGoodTotal || 0) +
-    (yRow.habitBadTotal || 0) +
-    (yRow.overcomeTotal || 0);
-  if (total <= 0) return false;
-  const completionRate = (yRow.questsDone || 0) / total;
-  return completionRate < PENALTY_THRESHOLD;
+  if (!yRow) return null;
+  const total = yRow.exerciseTotal || 0;
+  if (total <= 0) return null;
+  const done = yRow.exerciseDone || 0;
+  const completionRate = done / total;
+  return {
+    date: yKey,
+    done,
+    total,
+    completionRate,
+    minimumDone: total,
+    needed: done < total,
+  };
 }
 
 export function generatePenaltyQuest(dateKey) {

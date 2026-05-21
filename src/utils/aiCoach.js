@@ -4,6 +4,8 @@ import { addDaysToKey, getTodayKey, normalizeFitnessConfig } from './rpg';
 
 export const AI_COACH_HISTORY_KEY = '@questboard/ai_coach_history_v1';
 export const AI_HABITS_CACHE_KEY = '@questboard/ai_habits_by_date_v1';
+export const AI_FITNESS_CACHE_KEY = '@questboard/ai_fitness_by_date_v1';
+export const AI_OVERCOME_CACHE_KEY = '@questboard/openai_overcome_by_date_v1';
 
 const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODEL = 'gpt-4o-mini';
@@ -550,5 +552,379 @@ export async function fetchDailyHabitsFromAI(params) {
     badIcons: normalized.badHabits.map((h) => h.icon),
   });
 
+  return normalized;
+}
+
+// --- Daily AI fitness (OpenAI -> cache) --------------------------------------
+
+async function readAiFitnessCacheMap() {
+  try {
+    const raw = await AsyncStorage.getItem(AI_FITNESS_CACHE_KEY);
+    if (!raw) return {};
+    const p = JSON.parse(raw);
+    return p && typeof p === 'object' ? p : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeAiFitnessCacheRow(dateKey, row) {
+  const map = await readAiFitnessCacheMap();
+  map[dateKey] = row;
+  await AsyncStorage.setItem(AI_FITNESS_CACHE_KEY, JSON.stringify(map));
+}
+
+function clampNumber(raw, min, max, fallback, decimals = 0) {
+  const n = Number(raw);
+  const base = Number.isFinite(n) ? n : fallback;
+  const clamped = Math.min(max, Math.max(min, base));
+  const factor = 10 ** decimals;
+  return Math.round(clamped * factor) / factor;
+}
+
+function recentExerciseSummary(history) {
+  const arr = Array.isArray(history) ? history.slice(-7) : [];
+  const rows = arr
+    .filter((row) => row?.date)
+    .map((row) => `${row.date}: ${Number(row.exerciseDone) || 0}/${Number(row.exerciseTotal) || 0}`)
+    .join('; ');
+  return rows || 'chua co du lieu';
+}
+
+export function getFitnessBounds(fitnessConfig, difficultyMult) {
+  const fc = normalizeFitnessConfig(fitnessConfig);
+  const m = Math.max(0.0001, Number(difficultyMult) || 1);
+  return {
+    runMinKm: Math.round(fc.runMinKm * m * 100) / 100,
+    runMaxKm: Math.round(fc.runMaxKm * m * 100) / 100,
+    pushMin: Math.max(5, Math.round(fc.pushMin * m)),
+    pushMax: Math.max(5, Math.round(fc.pushMax * m)),
+    sitMin: Math.max(8, Math.round(fc.sitMin * m)),
+    sitMax: Math.max(8, Math.round(fc.sitMax * m)),
+  };
+}
+
+export function normalizeDailyFitnessApiPayload(parsed, fallback, bounds, dateKey) {
+  const runKm = clampNumber(
+    parsed?.runKm,
+    bounds.runMinKm,
+    bounds.runMaxKm,
+    fallback.runKm,
+    2
+  );
+  const pushups = clampNumber(
+    parsed?.pushups,
+    bounds.pushMin,
+    bounds.pushMax,
+    fallback.pushups
+  );
+  const situps = clampNumber(
+    parsed?.situps,
+    bounds.sitMin,
+    bounds.sitMax,
+    fallback.situps
+  );
+  const reason = String(parsed?.reason ?? '').trim().slice(0, 180);
+  return {
+    runKm,
+    pushups,
+    situps,
+    aiFitnessDate: dateKey,
+    ...(reason ? { aiReason: reason } : {}),
+  };
+}
+
+export async function readCachedDailyFitnessPayload(dateKey, fallback, bounds) {
+  const map = await readAiFitnessCacheMap();
+  const row = map[dateKey];
+  if (!row || typeof row !== 'object') return null;
+  return normalizeDailyFitnessApiPayload(row, fallback, bounds, dateKey);
+}
+
+const DAILY_FITNESS_PROMPT = `Ban la HLV the duc ca nhan trong app QuestBoard.
+Tao bai tap cho dung 1 ngay dua tren lich su hoan thanh gan day.
+
+Quy tac bat buoc:
+- Chi tra ve JSON object, khong markdown.
+- Khong them bai tap moi, chi chon 3 so: runKm, pushups, situps.
+- Phai nam trong bounds nguoi dung dua vao.
+- Neu lich su the duc hay fail, giam do kho ve gan min.
+- Neu hoan thanh deu, tang vua phai.
+- Neu khong co du lieu, chon muc vua.
+
+Schema:
+{
+  "runKm": 1.5,
+  "pushups": 20,
+  "situps": 25,
+  "reason": "ngan gon vi sao chon muc nay"
+}`;
+
+export async function fetchDailyFitnessFromAI(params) {
+  const {
+    apiKey,
+    dateKey,
+    weekdayLabel,
+    history,
+    profile,
+    fitnessConfig,
+    fallbackExercise,
+  } = params;
+  if (!apiKey) throw new Error('Thieu EXPO_PUBLIC_OPENAI_API_KEY');
+
+  const bounds = getFitnessBounds(
+    fitnessConfig,
+    profile?.difficultyMult ?? 1
+  );
+  const userLine = [
+    `Ngay: ${dateKey} (${weekdayLabel}).`,
+    `Level: ${Number(profile?.level) || 1}. Streak: ${Number(profile?.streak) || 0}.`,
+    `Strength Lv: ${Number(profile?.stats?.strength?.level) || 1}. Endurance Lv: ${Number(profile?.stats?.endurance?.level) || 1}.`,
+    `Bounds: runKm ${bounds.runMinKm}-${bounds.runMaxKm}, pushups ${bounds.pushMin}-${bounds.pushMax}, situps ${bounds.sitMin}-${bounds.sitMax}.`,
+    `Fallback hien tai: runKm ${fallbackExercise.runKm}, pushups ${fallbackExercise.pushups}, situps ${fallbackExercise.situps}.`,
+    `Lich su the duc 7 ngay gan day: ${recentExerciseSummary(history)}.`,
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 55_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: DAILY_FITNESS_PROMPT },
+          { role: 'user', content: userLine },
+        ],
+        temperature: 0.4,
+        max_tokens: 500,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI fitness HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI fitness: body khong parse duoc');
+  }
+  const text = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!text) throw new Error('OpenAI fitness: khong co noi dung');
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(text));
+  } catch {
+    throw new Error('OpenAI fitness: JSON khong doc duoc');
+  }
+
+  const normalized = normalizeDailyFitnessApiPayload(
+    parsedRaw,
+    fallbackExercise,
+    bounds,
+    dateKey
+  );
+  await writeAiFitnessCacheRow(dateKey, normalized);
+  return normalized;
+}
+
+// --- Daily AI overcome quests (OpenAI -> cache) ------------------------------
+
+async function readAiOvercomeCacheMap() {
+  try {
+    const raw = await AsyncStorage.getItem(AI_OVERCOME_CACHE_KEY);
+    if (!raw) return {};
+    const p = JSON.parse(raw);
+    return p && typeof p === 'object' ? p : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeAiOvercomeCacheRow(dateKey, row) {
+  const map = await readAiOvercomeCacheMap();
+  map[dateKey] = row;
+  await AsyncStorage.setItem(AI_OVERCOME_CACHE_KEY, JSON.stringify(map));
+}
+
+function clampOvercomeXp(xp) {
+  const v = Math.round(Number(xp));
+  if (!Number.isFinite(v)) return 100;
+  return Math.min(150, Math.max(60, v));
+}
+
+function normalizeTier(raw, xp) {
+  const t = String(raw ?? '').trim().toLowerCase();
+  if (t === 'easy' || t === 'normal' || t === 'hard') return t;
+  if (xp >= 130) return 'hard';
+  if (xp <= 75) return 'easy';
+  return 'normal';
+}
+
+export function normalizeDailyOvercomeApiPayload(parsed, dateKey) {
+  const source = Array.isArray(parsed?.quests) ? parsed.quests : [];
+  const used = new Set();
+  const quests = source.slice(0, 3).map((row, i) => {
+    let title = String(row?.title ?? '').trim();
+    if (!title) title = `Thử thách bất ngờ #${i + 1}`;
+    title = title.replace(/\s+/g, ' ').slice(0, 80);
+    const key = title.toLowerCase();
+    if (used.has(key)) title = `${title} (${i + 1})`;
+    used.add(title.toLowerCase());
+    const xp = clampOvercomeXp(row?.xp);
+    return {
+      id: `openai-overcome-${dateKey}-${i}`,
+      title,
+      tier: normalizeTier(row?.tier, xp),
+      xp,
+      done: false,
+    };
+  });
+
+  while (quests.length < 3) {
+    const i = quests.length;
+    quests.push({
+      id: `openai-overcome-${dateKey}-${i}`,
+      title: `Làm một việc hữu ích mà bạn đã né tránh`,
+      tier: 'normal',
+      xp: 100,
+      done: false,
+    });
+  }
+
+  return { quests };
+}
+
+export async function readCachedDailyOvercomePayload(dateKey) {
+  const map = await readAiOvercomeCacheMap();
+  const row = map[dateKey];
+  if (!row || typeof row !== 'object') return null;
+  return normalizeDailyOvercomeApiPayload(row, dateKey);
+}
+
+function recentOvercomeTitles(history, currentDaily) {
+  const titles = [];
+  const current = Array.isArray(currentDaily?.overcome) ? currentDaily.overcome : [];
+  for (const q of current) {
+    if (q?.title) titles.push(String(q.title));
+  }
+  const rows = Array.isArray(history) ? history.slice(-10) : [];
+  for (const row of rows) {
+    if (Array.isArray(row?.overcomeTitles)) {
+      for (const title of row.overcomeTitles) titles.push(String(title));
+    }
+  }
+  return [...new Set(titles.map((t) => t.trim()).filter(Boolean))].slice(-18);
+}
+
+const DAILY_OVERCOME_PROMPT = `Ban la nguoi thiet ke quest "Vuot ban than" cho app QuestBoard.
+Moi ngay tao 3 thu thach bat ngo, thuc te, co ich, khong lap lai may moc.
+
+Muc tieu:
+- Tao cam giac "hom nay co dieu minh khong doan truoc".
+- Khong tao viec nguy hiem, bat hop phap, xau ho nguoi dung, hoac qua suc.
+- Khong lap y tuong trong danh sach gan day.
+- Nen cu the, lam duoc trong ngay, thoi luong 5-120 phut.
+- Da dang chu de: can dam xa hoi, don dep, hoc ky nang, sang tao, tap trung, phuc hoi, giup nguoi khac, xu ly viec tri hoan.
+
+Chi tra ve JSON object, khong markdown:
+{
+  "quests": [
+    {"title":"...", "tier":"easy", "xp":60},
+    {"title":"...", "tier":"normal", "xp":100},
+    {"title":"...", "tier":"hard", "xp":150}
+  ]
+}`;
+
+export async function fetchDailyOvercomeFromAI(params) {
+  const { apiKey, dateKey, weekdayLabel, history, daily, profile } = params;
+  if (!apiKey) throw new Error('Thieu EXPO_PUBLIC_OPENAI_API_KEY');
+
+  const avoidTitles = recentOvercomeTitles(history, daily);
+  const userLine = [
+    `Ngay: ${dateKey} (${weekdayLabel}).`,
+    `Level: ${Number(profile?.level) || 1}. Streak: ${Number(profile?.streak) || 0}.`,
+    `Tong quest vuot ban than da hoan thanh: ${Number(profile?.lifetimeOvercomeCompleted) || 0}.`,
+    `Tranh lap cac y tuong/tieu de gan day: ${avoidTitles.length ? avoidTitles.join(' | ') : 'chua co'}.`,
+    'Hay tao 3 quest moi la hon template mac dinh, nhung van an toan va lam duoc trong ngay.',
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 55_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: DAILY_OVERCOME_PROMPT },
+          { role: 'user', content: userLine },
+        ],
+        temperature: 1,
+        max_tokens: 800,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI overcome HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI overcome: body khong parse duoc');
+  }
+  const text = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!text) throw new Error('OpenAI overcome: khong co noi dung');
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(text));
+  } catch {
+    throw new Error('OpenAI overcome: JSON khong doc duoc');
+  }
+
+  const normalized = normalizeDailyOvercomeApiPayload(parsedRaw, dateKey);
+  await writeAiOvercomeCacheRow(dateKey, normalized);
   return normalized;
 }
