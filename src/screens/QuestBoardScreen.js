@@ -75,6 +75,7 @@ import StatsScreen from './StatsScreen';
 import SettingsScreen from './SettingsScreen';
 import AiCoachScreen from './AiCoachScreen';
 import RulesScreen from './RulesScreen';
+import BossScreen from './BossScreen';
 
 import {
   habitsWithCustomLabels,
@@ -107,6 +108,81 @@ const IMG = {
   challenge: { uri: 'https://s3-hn1-api.longvan.vn/video-khoa-hoc/files/1779375671060-668969896-5.jpg' },
   homeLogo: require('../../assets/images/home-logo.png'),
 };
+
+const TABS = [
+  { id: 'quest', label: 'Quest', icon: require('../../assets/images/menu_quest.png') },
+  { id: 'boss', label: 'Boss', icon: require('../../assets/images/menu_boss.png') },
+  { id: 'coach', label: 'Pet', icon: require('../../assets/images/menu_pet.png') },
+  { id: 'stats', label: 'Stats', icon: require('../../assets/images/menu_stats.png') },
+  { id: 'more', label: 'More', icon: require('../../assets/images/menu_more.png') },
+];
+
+function BottomTabBar({ activeTab, onChangeTab }) {
+  return (
+    <View style={styles.bottomTabs}>
+      {TABS.map((tab) => {
+        const active =
+          activeTab === tab.id || (tab.id === 'more' && activeTab === 'rules');
+        return (
+          <Pressable
+            key={tab.id}
+            style={[styles.bottomTab, active && styles.bottomTabActive]}
+            onPress={() => onChangeTab(tab.id)}
+            hitSlop={8}
+          >
+            <Image
+              source={tab.icon}
+              style={[styles.bottomTabIconImage, active && styles.bottomTabIconActive]}
+            />
+            <Text
+              style={[styles.bottomTabLabel, active && styles.bottomTabTextActive]}
+              numberOfLines={1}
+            >
+              {tab.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function AppShell({ activeTab, onChangeTab, children, systemMessage }) {
+  return (
+    <View style={styles.appShell}>
+      <View style={styles.appContent}>{children}</View>
+      <BottomTabBar activeTab={activeTab} onChangeTab={onChangeTab} />
+      {systemMessage}
+    </View>
+  );
+}
+
+function MoreScreen({ onOpenRules, onOpenSettings }) {
+  return (
+    <SafeAreaView style={styles.moreRoot} edges={['top']}>
+      <ScrollView contentContainerStyle={styles.moreContent}>
+        <Text style={styles.moreTitle}>More</Text>
+        <Text style={styles.moreSubtitle}>Luật hệ thống và cài đặt app.</Text>
+
+        <Pressable style={styles.moreAction} onPress={onOpenRules}>
+          <Text style={styles.moreActionIcon}>📜</Text>
+          <View style={styles.moreActionBody}>
+            <Text style={styles.moreActionTitle}>Luật</Text>
+            <Text style={styles.moreActionText}>Xem toàn bộ luật RPG hiện tại.</Text>
+          </View>
+        </Pressable>
+
+        <Pressable style={styles.moreAction} onPress={onOpenSettings}>
+          <Text style={styles.moreActionIcon}>⚙️</Text>
+          <View style={styles.moreActionBody}>
+            <Text style={styles.moreActionTitle}>Cài đặt</Text>
+            <Text style={styles.moreActionText}>Tùy chỉnh quest, nhắc nhở và dữ liệu.</Text>
+          </View>
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
 
 function mapFitnessActionData(data) {
   if (!data || typeof data !== 'object') return null;
@@ -265,10 +341,9 @@ function RPGDivider({ color }) {
 export default function QuestBoardScreen() {
   const [state, setState] = useState(null);
   const [draftTask, setDraftTask] = useState('');
-  const [showStats, setShowStats] = useState(false);
+  const [activeTab, setActiveTab] = useState('quest');
   const [showSettings, setShowSettings] = useState(false);
-  const [showAiCoach, setShowAiCoach] = useState(false);
-  const [showRules, setShowRules] = useState(false);
+  const [workListScrolling, setWorkListScrolling] = useState(false);
   const [systemMsg, setSystemMsg] = useState({
     visible: false,
     title: '',
@@ -980,34 +1055,86 @@ export default function QuestBoardScreen() {
     );
   }
 
-  if (showAiCoach) {
+  if (activeTab === 'coach') {
     return (
-        <View style={styles.flex}>
+        <AppShell
+            activeTab={activeTab}
+            onChangeTab={setActiveTab}
+            systemMessage={systemMessage}
+        >
           <AiCoachScreen
               state={state}
-              onClose={() => setShowAiCoach(false)}
+              onClose={() => setActiveTab('quest')}
               onAfterExchange={handleAiCoachExchange}
           />
-          {systemMessage}
-        </View>
+        </AppShell>
     );
   }
 
-  if (showStats) {
+  if (activeTab === 'boss') {
     return (
-        <View style={styles.flex}>
-          <StatsScreen state={state} onClose={() => setShowStats(false)} />
-          {systemMessage}
-        </View>
+        <AppShell
+            activeTab={activeTab}
+            onChangeTab={setActiveTab}
+            systemMessage={systemMessage}
+        >
+          <BossScreen
+              state={state}
+              onBossStateChange={(updater) => {
+                commit((s) => ({
+                  ...s,
+                  boss:
+                    typeof updater === 'function'
+                      ? updater(s.boss)
+                      : updater,
+                }));
+              }}
+              onBossFullStateChange={(updater) => {
+                commit((s) =>
+                  typeof updater === 'function' ? updater(s) : updater
+                );
+              }}
+          />
+        </AppShell>
     );
   }
 
-  if (showRules) {
+  if (activeTab === 'stats') {
     return (
-        <View style={styles.flex}>
-          <RulesScreen onClose={() => setShowRules(false)} />
-          {systemMessage}
-        </View>
+        <AppShell
+            activeTab={activeTab}
+            onChangeTab={setActiveTab}
+            systemMessage={systemMessage}
+        >
+          <StatsScreen state={state} onClose={() => setActiveTab('quest')} />
+        </AppShell>
+    );
+  }
+
+  if (activeTab === 'rules') {
+    return (
+        <AppShell
+            activeTab={activeTab}
+            onChangeTab={setActiveTab}
+            systemMessage={systemMessage}
+        >
+          <RulesScreen onClose={() => setActiveTab('more')} />
+        </AppShell>
+    );
+  }
+
+  if (activeTab === 'more') {
+    return (
+        <AppShell
+            activeTab={activeTab}
+            onChangeTab={setActiveTab}
+            systemMessage={systemMessage}
+        >
+          <MoreScreen
+              onOpenRules={() => setActiveTab('rules')}
+              onOpenSettings={() => setShowSettings(true)}
+          />
+        </AppShell>
     );
   }
 
@@ -1059,6 +1186,11 @@ export default function QuestBoardScreen() {
       : 'Lý do: hôm qua chưa hoàn thành đủ mục thể dục.';
 
   return (
+    <AppShell
+        activeTab={activeTab}
+        onChangeTab={setActiveTab}
+        systemMessage={systemMessage}
+    >
       <SafeAreaView style={styles.flex} edges={['top']}>
         <KeyboardAvoidingView
             style={styles.flexInner}
@@ -1068,68 +1200,12 @@ export default function QuestBoardScreen() {
               style={styles.scroll}
               contentContainerStyle={styles.content}
               keyboardShouldPersistTaps="handled"
+              scrollEnabled={!workListScrolling}
           >
             {/* [1] HEADER */}
             <ImageBackground source={IMG.hero} style={styles.headerBg} resizeMode="cover">
-              <View style={styles.headerOverlay}>
-                <View style={styles.headerTop}>
-                  <View style={styles.heroActions}>
-                    <Pressable
-                        onPress={() => {
-                          setShowStats(false);
-                          setShowAiCoach(false);
-                          setShowRules(false);
-                          setShowSettings(true);
-                        }}
-                        hitSlop={14}
-                        style={styles.heroIconBtn}
-                    >
-                      <Text style={styles.heroIcon}>⚙️</Text>
-                      <Text style={styles.heroIconLabel}>CÀI ĐẶT</Text>
-                    </Pressable>
-                    <Pressable
-                        onPress={() => {
-                          setShowStats(false);
-                          setShowSettings(false);
-                          setShowRules(false);
-                          setShowAiCoach(true);
-                        }}
-                        hitSlop={14}
-                        style={styles.heroIconBtn}
-                    >
-                      <Text style={styles.heroIcon}>🤖</Text>
-                      <Text style={styles.heroIconLabel}>BOT</Text>
-                    </Pressable>
-                    <Pressable
-                        onPress={() => {
-                          setShowSettings(false);
-                          setShowAiCoach(false);
-                          setShowRules(false);
-                          setShowStats(true);
-                        }}
-                        hitSlop={14}
-                        style={styles.heroIconBtn}
-                    >
-                      <Text style={styles.heroIcon}>📊</Text>
-                      <Text style={styles.heroIconLabel}>THỐNG KÊ</Text>
-                    </Pressable>
-                    <Pressable
-                        onPress={() => {
-                          setShowSettings(false);
-                          setShowAiCoach(false);
-                          setShowStats(false);
-                          setShowRules(true);
-                        }}
-                        hitSlop={14}
-                        style={styles.heroIconBtn}
-                    >
-                      <Text style={styles.heroIcon}>📜</Text>
-                      <Text style={styles.heroIconLabel}>LUẬT</Text>
-                    </Pressable>
-                  </View>
-                </View>
-
-                <View style={styles.headerBottom}>
+              <View style={styles.headerOverlay} pointerEvents="box-none">
+                <View style={styles.headerBottom} pointerEvents="none">
                   <Image
                     source={IMG.homeLogo}
                     style={styles.brandLogo}
@@ -1317,12 +1393,32 @@ export default function QuestBoardScreen() {
                     <Text style={styles.emptyFull}>Chưa có quest nào — thêm ngay!</Text>
                 ) : null}
 
-                <ScrollView style={styles.workListScrollFull}>
+                <ScrollView
+                    style={styles.workListScrollFull}
+                    contentContainerStyle={styles.workListContentFull}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator
+                    onTouchStart={() => setWorkListScrolling(true)}
+                    onTouchEnd={() => setWorkListScrolling(false)}
+                    onTouchCancel={() => setWorkListScrolling(false)}
+                    onScrollBeginDrag={() => setWorkListScrolling(true)}
+                    onScrollEndDrag={() => setWorkListScrolling(false)}
+                    onMomentumScrollEnd={() => setWorkListScrolling(false)}
+                >
                   {daily.workTasks.map((w) => (
                       <View key={w.id} style={styles.taskRowFull}>
                         <View style={styles.taskCheckFull}>
                           <CheckRow
-                              label={<Text style={styles.taskCheckLabelFull}>{w.text}</Text>}
+                              label={
+                                <Text
+                                    style={styles.taskCheckLabelFull}
+                                    numberOfLines={1}
+                                    ellipsizeMode="tail"
+                                >
+                                  {w.text}
+                                </Text>
+                              }
                               checked={w.done}
                               disabled={w.done}
                               onToggle={() => toggleWorkTask(w.id)}
@@ -1547,13 +1643,109 @@ export default function QuestBoardScreen() {
             </View>
 
           </ScrollView>
-          {systemMessage}
         </KeyboardAvoidingView>
       </SafeAreaView>
+    </AppShell>
   );
 }
 
 const styles = StyleSheet.create({
+  appShell: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+  },
+  appContent: {
+    flex: 1,
+  },
+  bottomTabs: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    backgroundColor: '#070711',
+    borderTopWidth: 1,
+    borderTopColor: '#22223a',
+    paddingTop: 7,
+    paddingBottom: Platform.OS === 'ios' ? 22 : 10,
+    paddingHorizontal: 8,
+  },
+  bottomTab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    borderRadius: 8,
+    paddingVertical: 5,
+  },
+  bottomTabActive: {
+    backgroundColor: '#171128',
+    borderWidth: 1,
+    borderColor: '#4b2f85',
+  },
+  bottomTabIconImage: {
+    width: 30,
+    height: 30,
+    marginBottom: 2,
+    resizeMode: 'contain',
+    opacity: 0.75,
+  },
+  bottomTabIconActive: {
+    opacity: 1,
+  },
+  bottomTabLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  bottomTabTextActive: {
+    color: COLORS.gold,
+  },
+  moreRoot: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+  },
+  moreContent: {
+    padding: 16,
+    paddingBottom: 28,
+  },
+  moreTitle: {
+    color: COLORS.gold,
+    fontSize: 28,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  moreSubtitle: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    marginBottom: 18,
+  },
+  moreAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#10101c',
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 12,
+  },
+  moreActionIcon: {
+    fontSize: 26,
+    marginRight: 12,
+  },
+  moreActionBody: {
+    flex: 1,
+  },
+  moreActionTitle: {
+    color: COLORS.textPrimary,
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  moreActionText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+  },
   flex: {
     flex: 1,
     backgroundColor: COLORS.bg,
@@ -1588,21 +1780,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     padding: 16,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
   },
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
+    zIndex: 10,
+    elevation: 10,
   },
   heroActions: {
     flexDirection: 'row',
     gap: 9,
+    zIndex: 11,
+    elevation: 11,
   },
   heroIconBtn: {
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 46,
+    zIndex: 12,
+    elevation: 12,
   },
   heroIcon: {
     fontSize: 24,
@@ -1615,6 +1813,8 @@ const styles = StyleSheet.create({
   },
   headerBottom: {
     justifyContent: 'flex-end',
+    zIndex: 1,
+    elevation: 1,
   },
   brand: {
     color: COLORS.gold,
@@ -1867,7 +2067,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   workListScrollFull: {
-    maxHeight: 280,
+    height: 280,
+    flexGrow: 0,
+  },
+  workListContentFull: {
+    paddingBottom: 4,
   },
   taskRowFull: {
     flexDirection: 'row',
@@ -1879,14 +2083,17 @@ const styles = StyleSheet.create({
   },
   taskCheckFull: {
     flex: 1,
+    minWidth: 0,
   },
   taskCheckLabelFull: {
     color: '#e8e4dc',
     fontSize: 13,
     fontWeight: '600',
+    flexShrink: 1,
   },
   trashFull: {
     padding: 10,
+    flexShrink: 0,
   },
   trashTextFull: {
     color: COLORS.red,

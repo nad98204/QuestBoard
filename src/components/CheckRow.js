@@ -1,6 +1,13 @@
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 
 export default function CheckRow({ label, detail, checked, onToggle, disabled }) {
+  const renderedLabel =
+    typeof label === 'string' ? (
+      <Text style={[styles.label, checked && styles.labelDone]}>{label}</Text>
+    ) : (
+      label
+    );
+
   return (
     <Pressable
       onPress={() => !disabled && onToggle()}
@@ -15,7 +22,7 @@ export default function CheckRow({ label, detail, checked, onToggle, disabled })
         {checked ? <Text style={styles.tick}>✓</Text> : null}
       </View>
       <View style={styles.textCol}>
-        <Text style={[styles.label, checked && styles.labelDone]}>{label}</Text>
+        {renderedLabel}
         {detail ? <Text style={styles.detail}>{detail}</Text> : null}
       </View>
     </Pressable>
@@ -50,7 +57,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212, 175, 55, 0.25)',
   },
   tick: { color: '#d4af37', fontWeight: '900', fontSize: 14 },
-  textCol: { flex: 1 },
+  textCol: { flex: 1, minWidth: 0 },
   label: { color: '#e8e4dc', fontSize: 15, fontWeight: '600' },
   labelDone: { color: '#a89b7a' },
   detail: { color: '#7d786f', fontSize: 12, marginTop: 2 },

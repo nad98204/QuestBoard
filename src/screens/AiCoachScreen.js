@@ -97,7 +97,7 @@ export default function AiCoachScreen({
       >
         <View style={styles.mainColumn}>
           <View style={styles.topBar}>
-            <Text style={styles.headerTitle}>🤖 AI Coach</Text>
+            <Text style={styles.headerTitle}>🐾 Pet Hỗ Trợ</Text>
             <Pressable onPress={onClose} hitSlop={12} style={styles.closeTap}>
               <Text style={styles.closeText}>Đóng</Text>
             </Pressable>
@@ -121,8 +121,8 @@ export default function AiCoachScreen({
             }
             ListEmptyComponent={
               <Text style={styles.empty}>
-                Hỏi coach về streak, thể dục hoặc thói quen — tiếng Việt, thân
-                thiện.
+                Hỏi Pet về streak, thể dục hoặc thói quen — tiếng Việt, sẵn
+                sàng hỗ trợ.
               </Text>
             }
             renderItem={({ item }) => {
@@ -167,7 +167,7 @@ export default function AiCoachScreen({
               style={styles.input}
               value={input}
               onChangeText={setInput}
-              placeholder="Nhắn cho AI Coach…"
+              placeholder="Nhắn cho Pet hỗ trợ…"
               placeholderTextColor="#6a6570"
               editable={!loading}
               multiline

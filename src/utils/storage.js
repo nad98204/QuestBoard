@@ -294,6 +294,90 @@ const DEFAULT_PROFILE = () => ({
 const MAX_HISTORY_DAYS = 30;
 const BAD_HABIT_KEYS = ['no_social', 'no_junk', 'no_delay'];
 
+function defaultBossState() {
+  return {
+    currentEvent: null,
+    currentBoss: null,
+    tasks: [],
+    rules: null,
+    lootTable: null,
+    results: [],
+    lastSeenBossTemplateIds: [],
+  };
+}
+
+function defaultInventoryState() {
+  return {
+    items: {},
+    activeEffects: [],
+  };
+}
+
+function normalizeBossState(raw) {
+  const fallback = defaultBossState();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fallback;
+
+  return {
+    currentEvent:
+      raw.currentEvent && typeof raw.currentEvent === 'object'
+        ? raw.currentEvent
+        : null,
+    currentBoss:
+      raw.currentBoss && typeof raw.currentBoss === 'object'
+        ? raw.currentBoss
+        : null,
+    tasks: Array.isArray(raw.tasks)
+      ? raw.tasks.filter((task) => task && typeof task === 'object')
+      : [],
+    rules: raw.rules && typeof raw.rules === 'object' ? raw.rules : null,
+    lootTable:
+      raw.lootTable && typeof raw.lootTable === 'object'
+        ? raw.lootTable
+        : null,
+    results: Array.isArray(raw.results)
+      ? raw.results.filter((result) => result && typeof result === 'object')
+      : [],
+    lastSeenBossTemplateIds: Array.isArray(raw.lastSeenBossTemplateIds)
+      ? raw.lastSeenBossTemplateIds
+          .map((id) => String(id ?? '').trim())
+          .filter(Boolean)
+          .slice(-20)
+      : [],
+  };
+}
+
+function normalizeInventoryState(raw) {
+  const fallback = defaultInventoryState();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fallback;
+
+  const srcItems =
+    raw.items && typeof raw.items === 'object' && !Array.isArray(raw.items)
+      ? raw.items
+      : {};
+  const items = {};
+  for (const [key, value] of Object.entries(srcItems)) {
+    if (!value || typeof value !== 'object') continue;
+    const itemId = String(value.itemId ?? key).trim();
+    if (!itemId) continue;
+    const quantity = Math.max(0, Math.floor(Number(value.quantity) || 0));
+    if (quantity <= 0) continue;
+    items[itemId] = {
+      ...value,
+      itemId,
+      quantity,
+      lastUsedAt:
+        typeof value.lastUsedAt === 'number' ? value.lastUsedAt : null,
+    };
+  }
+
+  return {
+    items,
+    activeEffects: Array.isArray(raw.activeEffects)
+      ? raw.activeEffects.filter((effect) => effect && typeof effect === 'object')
+      : [],
+  };
+}
+
 function applyDeathToProfile(profile) {
   const xpInLevel = Math.max(
     0,
@@ -522,6 +606,8 @@ export function createInitialState() {
     badHabitLabels: BAD_HABITS.map((h) => h.label),
     achievements: [],
     aiCoachHistory: [],
+    boss: defaultBossState(),
+    inventory: defaultInventoryState(),
     updatedAt: Date.now(),
   };
 }
@@ -625,6 +711,8 @@ function migrateParsed(data) {
     updatedAt:
       typeof data.updatedAt === 'number' ? data.updatedAt : 0,
     aiCoachHistory: sanitizeAiCoachHistory(data.aiCoachHistory),
+    boss: normalizeBossState(data.boss),
+    inventory: normalizeInventoryState(data.inventory),
   };
 }
 
@@ -635,6 +723,8 @@ function toPersistedPayload(state) {
     history: Array.isArray(state.history) ? state.history : [],
     achievements: Array.isArray(state.achievements) ? state.achievements : [],
     aiCoachHistory: sanitizeAiCoachHistory(state.aiCoachHistory),
+    boss: normalizeBossState(state.boss),
+    inventory: normalizeInventoryState(state.inventory),
     fitnessConfig:
       state.fitnessConfig != null
         ? normalizeFitnessConfig(state.fitnessConfig)
@@ -724,6 +814,8 @@ export function resetTodayQuests(state) {
     daily: freshDailyPayload(today, profile.difficultyMult ?? 1, fc),
     history: Array.isArray(state.history) ? state.history : [],
     achievements: Array.isArray(state.achievements) ? state.achievements : [],
+    boss: normalizeBossState(state.boss),
+    inventory: normalizeInventoryState(state.inventory),
   };
 }
 
