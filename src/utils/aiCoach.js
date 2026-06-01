@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { BAD_HABITS, GOOD_HABITS } from './constants';
 import { addDaysToKey, getTodayKey, normalizeFitnessConfig } from './rpg';
 
@@ -13,6 +14,11 @@ const OPENAI_MODEL = 'gpt-4o-mini';
 const MAX_MESSAGES = 50;
 
 export function getOpenAiApiKey() {
+  // Ưu tiên đọc từ extra (hoạt động cả dev lẫn production APK)
+  const fromExtra = Constants.expoConfig?.extra?.openaiApiKey;
+  if (fromExtra) return fromExtra;
+
+  // Fallback: process.env (chỉ hoạt động trong Expo Go / dev)
   return (
     (typeof process !== 'undefined' &&
       process.env &&
