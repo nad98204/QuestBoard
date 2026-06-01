@@ -1,6 +1,8 @@
-// app.config.js — thay thế app.json để inject biến môi trường vào build
-// Khi build APK, process.env.EXPO_PUBLIC_OPENAI_API_KEY từ .env sẽ được
-// nhúng vào bundle thông qua extra, đọc bằng expo-constants.
+// app.config.js — config chính của app, key được nhúng trực tiếp vào extra
+// để đảm bảo hoạt động trong cả Expo Go lẫn production APK build.
+
+const OPENAI_API_KEY =
+  process.env.EXPO_PUBLIC_OPENAI_API_KEY || '';
 
 export default ({ config }) => ({
   ...config,
@@ -33,7 +35,7 @@ export default ({ config }) => ({
   },
   plugins: ['expo-notifications'],
   extra: {
-    openaiApiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? '',
+    openaiApiKey: OPENAI_API_KEY,
     eas: {
       projectId: '03ae813e-aeef-434d-8ef4-d75f72c18a0f',
     },

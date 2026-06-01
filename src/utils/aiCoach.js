@@ -7,11 +7,14 @@ export const AI_COACH_HISTORY_KEY = '@questboard/ai_coach_history_v1';
 export const AI_HABITS_CACHE_KEY = '@questboard/ai_habits_by_date_v1';
 export const AI_FITNESS_CACHE_KEY = '@questboard/ai_fitness_by_date_v1';
 export const AI_OVERCOME_CACHE_KEY = '@questboard/openai_overcome_by_date_v1';
+export const USER_OPENAI_API_KEY_KEY = '@questboard/user_openai_api_key_v1';
 
 const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODEL = 'gpt-4o-mini';
 
 const MAX_MESSAGES = 50;
+const MISSING_OPENAI_KEY_MESSAGE =
+  'Thiếu OpenAI API key. Vào More > Cài đặt > AI OpenAI để dán key mới.';
 
 export function getOpenAiApiKey() {
   // Ưu tiên đọc từ extra (hoạt động cả dev lẫn production APK)
@@ -27,8 +30,33 @@ export function getOpenAiApiKey() {
   );
 }
 
-function getApiKey() {
+export async function loadUserOpenAiApiKey() {
+  try {
+    const raw = await AsyncStorage.getItem(USER_OPENAI_API_KEY_KEY);
+    return String(raw ?? '').trim();
+  } catch {
+    return '';
+  }
+}
+
+export async function saveUserOpenAiApiKey(apiKey) {
+  const normalized = String(apiKey ?? '').trim();
+  if (!normalized) {
+    await AsyncStorage.removeItem(USER_OPENAI_API_KEY_KEY);
+    return '';
+  }
+  await AsyncStorage.setItem(USER_OPENAI_API_KEY_KEY, normalized);
+  return normalized;
+}
+
+export async function getOpenAiApiKeyAsync() {
+  const userKey = await loadUserOpenAiApiKey();
+  if (userKey) return userKey;
   return getOpenAiApiKey();
+}
+
+async function getApiKey() {
+  return getOpenAiApiKeyAsync();
 }
 
 function stripJsonFromMarkdown(text) {
@@ -259,9 +287,9 @@ function parseCoachResponse(text) {
  */
 export async function sendAiCoachMessage(params) {
   const { state, userText, history } = params;
-  const apiKey = getApiKey();
+  const apiKey = await getApiKey();
   if (!apiKey) {
-    throw new Error('Thiếu EXPO_PUBLIC_OPENAI_API_KEY');
+    throw new Error(MISSING_OPENAI_KEY_MESSAGE);
   }
   const text = String(userText ?? '').trim();
   if (!text) {
@@ -302,6 +330,11 @@ export async function sendAiCoachMessage(params) {
 
   const rawBody = await res.text();
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(
+        'OpenAI HTTP 401: API key sai hoặc đã bị thu hồi. Vào More > Cài đặt > AI OpenAI và dán key mới.'
+      );
+    }
     let hint = rawBody.slice(0, 320);
     try {
       const errJson = JSON.parse(rawBody);
@@ -486,7 +519,7 @@ Trả về DUY NHẤT một JSON object, không markdown, không giải thích:
 export async function fetchDailyHabitsFromAI(params) {
   const { apiKey, weekdayLabel, dateKey, streak, level } = params;
   if (!apiKey) {
-    throw new Error('Thiếu EXPO_PUBLIC_OPENAI_API_KEY');
+    throw new Error(MISSING_OPENAI_KEY_MESSAGE);
   }
 
   const userLine = `Ngày quest: ${dateKey}. ${weekdayLabel}. Streak: ${Number(streak) || 0} ngày. Level: ${Number(level) || 1}. Sinh bộ thói quen cho hôm nay.`;
@@ -676,7 +709,7 @@ export async function fetchDailyFitnessFromAI(params) {
     fitnessConfig,
     fallbackExercise,
   } = params;
-  if (!apiKey) throw new Error('Thieu EXPO_PUBLIC_OPENAI_API_KEY');
+  if (!apiKey) throw new Error(MISSING_OPENAI_KEY_MESSAGE);
 
   const bounds = getFitnessBounds(
     fitnessConfig,
@@ -865,7 +898,7 @@ Chi tra ve JSON object, khong markdown:
 
 export async function fetchDailyOvercomeFromAI(params) {
   const { apiKey, dateKey, weekdayLabel, history, daily, profile } = params;
-  if (!apiKey) throw new Error('Thieu EXPO_PUBLIC_OPENAI_API_KEY');
+  if (!apiKey) throw new Error(MISSING_OPENAI_KEY_MESSAGE);
 
   const avoidTitles = recentOvercomeTitles(history, daily);
   const userLine = [
@@ -1419,8 +1452,8 @@ export async function fetchBossEncounterFromAI(params) {
     eventType,
     now = Date.now(),
   } = params ?? {};
-  const apiKey = getApiKey();
-  if (!apiKey) throw new Error('Thieu EXPO_PUBLIC_OPENAI_API_KEY');
+  const apiKey = await getApiKey();
+  if (!apiKey) throw new Error(MISSING_OPENAI_KEY_MESSAGE);
   if (!baseBoss || typeof baseBoss !== 'object') {
     throw new Error('Chưa có boss nền để AI sinh encounter');
   }
@@ -1513,8 +1546,8 @@ export async function fetchBossEncounterFromAI(params) {
 
 export async function fetchBossTasksFromAI(params) {
   const { state, boss, playerPower, now = Date.now() } = params ?? {};
-  const apiKey = getApiKey();
-  if (!apiKey) throw new Error('Thieu EXPO_PUBLIC_OPENAI_API_KEY');
+  const apiKey = await getApiKey();
+  if (!apiKey) throw new Error(MISSING_OPENAI_KEY_MESSAGE);
   if (!boss || typeof boss !== 'object') {
     throw new Error('Chưa có boss để sinh nhiệm vụ AI');
   }
@@ -1658,8 +1691,8 @@ export async function gradeBossTaskProofWithAI(params) {
     playerPower,
     now = Date.now(),
   } = params ?? {};
-  const apiKey = getApiKey();
-  if (!apiKey) throw new Error('Thiếu EXPO_PUBLIC_OPENAI_API_KEY');
+  const apiKey = await getApiKey();
+  if (!apiKey) throw new Error(MISSING_OPENAI_KEY_MESSAGE);
   if (!boss || typeof boss !== 'object') {
     throw new Error('Chưa có boss để chấm bằng chứng');
   }

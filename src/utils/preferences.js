@@ -5,6 +5,7 @@ import {
   AI_FITNESS_CACHE_KEY,
   AI_HABITS_CACHE_KEY,
   AI_OVERCOME_CACHE_KEY,
+  USER_OPENAI_API_KEY_KEY,
 } from './aiCoach';
 import { DEFAULT_FITNESS_CONFIG, normalizeFitnessConfig } from './rpg';
 
@@ -16,6 +17,7 @@ export const QUESTBOARD_ASYNC_STORAGE_KEYS = [
   AI_HABITS_CACHE_KEY,
   AI_FITNESS_CACHE_KEY,
   AI_OVERCOME_CACHE_KEY,
+  USER_OPENAI_API_KEY_KEY,
   '@questboard/notification_settings_v1',
   '@questboard/notifications_first_prompt_v1',
   '@questboard/user_firestore_doc_id',

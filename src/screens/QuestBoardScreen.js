@@ -79,6 +79,7 @@ import SettingsScreen from './SettingsScreen';
 import AiCoachScreen from './AiCoachScreen';
 import RulesScreen from './RulesScreen';
 import BossScreen from './BossScreen';
+import ExpenseScreen from './ExpenseScreen';
 
 import {
   habitsWithCustomLabels,
@@ -116,6 +117,7 @@ const TABS = [
   { id: 'quest', label: 'Quest', icon: require('../../assets/images/menu_quest.png') },
   { id: 'boss', label: 'Boss', icon: require('../../assets/images/menu_boss.png') },
   { id: 'coach', label: 'Pet', icon: require('../../assets/images/menu_pet.png') },
+  { id: 'expenses', label: 'Chi phí', iconText: '₫' },
   { id: 'stats', label: 'Stats', icon: require('../../assets/images/menu_stats.png') },
   { id: 'more', label: 'More', icon: require('../../assets/images/menu_more.png') },
 ];
@@ -133,10 +135,18 @@ function BottomTabBar({ activeTab, onChangeTab }) {
             onPress={() => onChangeTab(tab.id)}
             hitSlop={8}
           >
-            <Image
-              source={tab.icon}
-              style={[styles.bottomTabIconImage, active && styles.bottomTabIconActive]}
-            />
+            {tab.icon ? (
+              <Image
+                source={tab.icon}
+                style={[styles.bottomTabIconImage, active && styles.bottomTabIconActive]}
+              />
+            ) : (
+              <Text
+                style={[styles.bottomTabIconText, active && styles.bottomTabTextActive]}
+              >
+                {tab.iconText}
+              </Text>
+            )}
             <Text
               style={[styles.bottomTabLabel, active && styles.bottomTabTextActive]}
               numberOfLines={1}
@@ -1237,6 +1247,27 @@ export default function QuestBoardScreen() {
     );
   }
 
+  if (activeTab === 'expenses') {
+    return (
+        <AppShell
+            activeTab={activeTab}
+            onChangeTab={setActiveTab}
+            systemMessage={systemMessage}
+        >
+          <ExpenseScreen
+              transactions={state.expenses}
+              customCategories={state.expenseCategories}
+              onTransactionsChange={(expenses) => {
+                commit((s) => ({ ...s, expenses }));
+              }}
+              onCategoriesChange={(expenseCategories) => {
+                commit((s) => ({ ...s, expenseCategories }));
+              }}
+          />
+        </AppShell>
+    );
+  }
+
   if (activeTab === 'rules') {
     return (
         <AppShell
@@ -1816,6 +1847,13 @@ const styles = StyleSheet.create({
   },
   bottomTabIconActive: {
     opacity: 1,
+  },
+  bottomTabIconText: {
+    color: COLORS.textSecondary,
+    fontSize: 25,
+    lineHeight: 30,
+    fontWeight: '900',
+    marginBottom: 2,
   },
   bottomTabLabel: {
     color: COLORS.textSecondary,

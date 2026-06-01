@@ -14,6 +14,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BAD_HABITS, GOOD_HABITS } from '../utils/constants';
 import { DEFAULT_FITNESS_CONFIG } from '../utils/rpg';
 import {
+  loadUserOpenAiApiKey,
+  saveUserOpenAiApiKey,
+} from '../utils/aiCoach';
+import {
   saveFitnessConfig,
   saveGoodHabitLabels,
   saveBadHabitLabels,
@@ -33,7 +37,14 @@ import {
   saveNotificationSettings,
 } from '../utils/notifications';
 
-function LabeledInput({ label, hint, value, onChangeText, keyboardType }) {
+function LabeledInput({
+  label,
+  hint,
+  value,
+  onChangeText,
+  keyboardType,
+  ...textInputProps
+}) {
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -44,9 +55,15 @@ function LabeledInput({ label, hint, value, onChangeText, keyboardType }) {
         onChangeText={onChangeText}
         keyboardType={keyboardType ?? 'default'}
         placeholderTextColor="#5c5766"
+        {...textInputProps}
       />
     </View>
   );
+}
+
+function looksLikeOpenAiApiKey(value) {
+  const key = String(value ?? '').trim();
+  return key.length >= 20 && key.startsWith('sk-') && !key.includes('...');
 }
 
 export default function SettingsScreen({
@@ -75,6 +92,8 @@ export default function SettingsScreen({
   );
 
   const [notifSettings, setNotifSettings] = useState(null);
+  const [openAiKey, setOpenAiKey] = useState('');
+  const [openAiKeyLoaded, setOpenAiKeyLoaded] = useState(false);
 
   const [savingType, setSavingType] = useState(null);
   const [resetTodayBusy, setResetTodayBusy] = useState(false);
@@ -103,6 +122,20 @@ export default function SettingsScreen({
 
   useEffect(() => {
     refreshBackups();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const key = await loadUserOpenAiApiKey();
+      if (!cancelled) {
+        setOpenAiKey(key);
+        setOpenAiKeyLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -137,6 +170,32 @@ export default function SettingsScreen({
       setBackups([]);
     } finally {
       setBackupsLoading(false);
+    }
+  }
+
+  async function saveOpenAiKey() {
+    const nextKey = openAiKey.trim();
+    if (nextKey && !looksLikeOpenAiApiKey(nextKey)) {
+      Alert.alert(
+        'API key chưa hợp lệ',
+        'Key OpenAI thường bắt đầu bằng sk- và không phải dạng rút gọn như sk-....'
+      );
+      return;
+    }
+
+    setSavingType('openai');
+    try {
+      const saved = await saveUserOpenAiApiKey(nextKey);
+      setOpenAiKey(saved);
+      await onApplied?.();
+      Alert.alert(
+        saved ? 'Đã lưu API key' : 'Đã xóa API key riêng',
+        saved
+          ? 'Pet sẽ ưu tiên dùng key này từ lần gọi AI tiếp theo.'
+          : 'App sẽ quay lại dùng key được đóng gói trong APK nếu có.'
+      );
+    } finally {
+      setSavingType(null);
     }
   }
 
@@ -269,6 +328,36 @@ export default function SettingsScreen({
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>AI OpenAI</Text>
+          <Text style={styles.sectionSub}>
+            Dán API key OpenAI của bạn để Pet và các tính năng AI dùng key này ngay trên thiết bị.
+            Để trống sẽ dùng key đóng gói trong APK nếu có.
+          </Text>
+          <LabeledInput
+            label="OpenAI API key"
+            hint="Ví dụ: sk-proj-... hoặc sk-..."
+            value={openAiKey}
+            onChangeText={setOpenAiKey}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+            editable={openAiKeyLoaded && savingType !== 'openai'}
+          />
+          <Pressable
+            style={styles.saveBtn}
+            onPress={saveOpenAiKey}
+            disabled={!openAiKeyLoaded || savingType === 'openai'}
+          >
+            {savingType === 'openai' ? (
+              <ActivityIndicator color="#0c0c10" />
+            ) : (
+              <Text style={styles.saveBtnText}>
+                {openAiKey.trim() ? 'Lưu API key' : 'Xóa API key riêng'}
+              </Text>
+            )}
+          </Pressable>
+        </View>
         {/* NHẮC NHỞ HẰNG NGÀY */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>🔔 Nhắc nhở hằng ngày</Text>

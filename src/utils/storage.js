@@ -44,7 +44,7 @@ import {
   fetchDailyOvercomeFromAI,
   getFitnessBounds,
   getDefaultDailyHabitsPayload,
-  getOpenAiApiKey,
+  getOpenAiApiKeyAsync,
   readCachedDailyFitnessPayload,
   readCachedDailyHabitsPayload,
   readCachedDailyOvercomePayload,
@@ -126,7 +126,7 @@ async function hydrateAiDailyOvercome(state) {
     return applyAiDailyOvercomePayload(state, cached);
   }
 
-  const apiKey = getOpenAiApiKey();
+  const apiKey = await getOpenAiApiKeyAsync();
   if (!apiKey) {
     console.log(
       '[hydrateAiDailyOvercome] thieu EXPO_PUBLIC_OPENAI_API_KEY - giu pool noi bo'
@@ -205,7 +205,7 @@ async function hydrateAiDailyFitness(state) {
     return applyAiDailyFitnessPayload(state, cached);
   }
 
-  const apiKey = getOpenAiApiKey();
+  const apiKey = await getOpenAiApiKeyAsync();
   if (!apiKey) {
     console.log(
       '[hydrateAiDailyFitness] thieu EXPO_PUBLIC_OPENAI_API_KEY - giu random hien tai'
@@ -247,7 +247,7 @@ async function hydrateAiDailyHabits(state) {
     return applyAiDailyHabitsPayload(state, cached);
   }
 
-  const apiKey = getOpenAiApiKey();
+  const apiKey = await getOpenAiApiKeyAsync();
   if (!apiKey) {
     console.log(
       '[hydrateAiDailyHabits] thiếu EXPO_PUBLIC_OPENAI_API_KEY — dùng habits mặc định'
@@ -294,6 +294,8 @@ const DEFAULT_PROFILE = () => ({
 });
 
 const MAX_HISTORY_DAYS = 365 * 5;
+const MAX_EXPENSE_TRANSACTIONS = 5000;
+const MAX_EXPENSE_CATEGORIES = 100;
 const BAD_HABIT_KEYS = ['no_social', 'no_junk', 'no_delay'];
 
 function defaultBossState() {
@@ -407,6 +409,91 @@ function normalizeInventoryState(raw) {
       ? raw.activeEffects.filter((effect) => effect && typeof effect === 'object')
       : [],
   };
+}
+
+function normalizeExpenseTransactions(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((tx, index) => {
+      if (!tx || typeof tx !== 'object' || Array.isArray(tx)) return null;
+
+      const amount = Number(tx.amount);
+      if (!Number.isFinite(amount) || amount === 0) return null;
+
+      const parsedDate = new Date(tx.dateTime);
+      const parsedTime = parsedDate.getTime();
+      const fallbackDate = new Date();
+      const dateTime = Number.isNaN(parsedTime)
+        ? fallbackDate.toISOString()
+        : parsedDate.toISOString();
+
+      const description = String(
+        tx.description ?? tx.name ?? tx.title ?? ''
+      ).trim();
+      if (!description) return null;
+
+      const id = String(
+        tx.id ?? `${Number.isNaN(parsedTime) ? fallbackDate.getTime() : parsedTime}-${index}`
+      ).trim();
+      return {
+        id,
+        description,
+        amount,
+        category: String(tx.category ?? 'other').trim() || 'other',
+        dateTime,
+        note: String(tx.note ?? '').trim(),
+        createdAt: Number.isFinite(Number(tx.createdAt))
+          ? Number(tx.createdAt)
+          : Number.isNaN(parsedTime)
+            ? fallbackDate.getTime()
+            : parsedTime,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
+    .slice(0, MAX_EXPENSE_TRANSACTIONS);
+}
+
+function normalizeExpenseCategories(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  const reservedIds = new Set([
+    'food',
+    'transport',
+    'entertainment',
+    'work_tools',
+    'income',
+    'other',
+  ]);
+  const seen = new Set(reservedIds);
+
+  return raw
+    .map((cat, index) => {
+      if (!cat || typeof cat !== 'object' || Array.isArray(cat)) return null;
+
+      const label = String(cat.label ?? '').trim();
+      if (!label) return null;
+
+      const fallbackId = `custom-${index}`;
+      const id = String(cat.id ?? fallbackId)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '-');
+      if (!id || seen.has(id)) return null;
+      seen.add(id);
+
+      return {
+        id,
+        label,
+        icon: String(cat.icon ?? '✦').trim() || '✦',
+        color: String(cat.color ?? '#94a3b8').trim() || '#94a3b8',
+        type: cat.type === 'income' ? 'income' : 'expense',
+        custom: true,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, MAX_EXPENSE_CATEGORIES);
 }
 
 function applyDeathToProfile(profile) {
@@ -674,6 +761,8 @@ export function createInitialState() {
     aiCoachHistory: [],
     boss: defaultBossState(),
     inventory: defaultInventoryState(),
+    expenses: [],
+    expenseCategories: [],
     updatedAt: Date.now(),
   };
 }
@@ -779,6 +868,8 @@ function migrateParsed(data) {
     aiCoachHistory: sanitizeAiCoachHistory(data.aiCoachHistory),
     boss: normalizeBossState(data.boss),
     inventory: normalizeInventoryState(data.inventory),
+    expenses: normalizeExpenseTransactions(data.expenses),
+    expenseCategories: normalizeExpenseCategories(data.expenseCategories),
   };
 }
 
@@ -791,6 +882,8 @@ function toPersistedPayload(state) {
     aiCoachHistory: sanitizeAiCoachHistory(state.aiCoachHistory),
     boss: normalizeBossState(state.boss),
     inventory: normalizeInventoryState(state.inventory),
+    expenses: normalizeExpenseTransactions(state.expenses),
+    expenseCategories: normalizeExpenseCategories(state.expenseCategories),
     fitnessConfig:
       state.fitnessConfig != null
         ? normalizeFitnessConfig(state.fitnessConfig)
