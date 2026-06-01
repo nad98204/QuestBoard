@@ -85,8 +85,26 @@ export const ITEM_ASSET_SLOTS = {
   },
 };
 
-export const BOSS_IMAGE_SOURCES = {};
-export const ITEM_ICON_SOURCES = {};
+export const BOSS_IMAGE_SOURCES = {
+  boss_procrastination_ghost: require('../../assets/images/boss/boss_procrastination_ghost.png'),
+  boss_lazy_demon: require('../../assets/images/boss/boss_lazy_demon.png'),
+  boss_chain_breaker: require('../../assets/images/boss/boss_chain_breaker.png'),
+  boss_weekend_gate_knight: require('../../assets/images/boss/boss_weekend_gate_knight.png'),
+  boss_elite_shadow_hunter: require('../../assets/images/boss/boss_elite_shadow_hunter.png'),
+  boss_world_abyss_king: require('../../assets/images/boss/boss_world_abyss_king.png'),
+};
+
+export const ITEM_ICON_SOURCES = {
+  item_large_hp_potion: require('../../assets/images/items/item_large_hp_potion.png'),
+  item_large_mana_potion: require('../../assets/images/items/item_large_mana_potion.png'),
+  item_life_shield: require('../../assets/images/items/item_life_shield.png'),
+  item_streak_freeze: require('../../assets/images/items/item_streak_freeze.png'),
+  item_rest_permit: require('../../assets/images/items/item_rest_permit.png'),
+  item_death_pardon: require('../../assets/images/items/item_death_pardon.png'),
+  item_lucky_charm: require('../../assets/images/items/item_lucky_charm.png'),
+  item_extend_order: require('../../assets/images/items/item_extend_order.png'),
+  item_world_core: require('../../assets/images/items/item_world_core.png'),
+};
 
 export function getBossVisual(imageKey) {
   const key = String(imageKey ?? '').trim();

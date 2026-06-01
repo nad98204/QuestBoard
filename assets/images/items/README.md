@@ -1,6 +1,8 @@
 # Item icon slots
 
-Drop transparent PNG item icons here, then map them in `src/utils/bossAssets.js`.
+These PNG files are live in `src/utils/bossAssets.js`.
+Replace any file with the same filename to upgrade the icon without changing code.
+Use transparent background PNG, readable at small mobile icon size.
 
 - `item_large_hp_potion.png`
 - `item_large_mana_potion.png`

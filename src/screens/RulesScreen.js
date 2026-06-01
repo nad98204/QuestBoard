@@ -329,10 +329,17 @@ export default function RulesScreen({ onClose }) {
             tone="neutral"
           />
           <RuleRow
+            name="Nghỉ cuối tuần"
+            effect="Không trừ HP, không gãy chuỗi"
+            condition="Áp dụng cho Thứ bảy và Chủ nhật."
+            note="Nhiệm vụ cuối tuần là tự nguyện; nếu muốn vẫn có thể chủ động làm để nhận thưởng."
+            tone="good"
+          />
+          <RuleRow
             name="Quên báo cáo thói quen xấu"
             effect="Auto-fail"
             condition="Sang ngày mới mà mục xấu vẫn chưa tick."
-            note="Hệ thống tự tính là thất bại, trừ HP trước khi tạo ngày mới."
+            note="Ngày thường sẽ bị tính là thất bại và trừ HP trước khi tạo ngày mới; cuối tuần được tính là nghỉ."
             tone="bad"
           />
         </Section>

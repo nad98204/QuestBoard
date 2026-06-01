@@ -50,6 +50,7 @@ import {
 } from '../utils/constants';
 import {
   advanceStreak,
+  addDaysToKey,
   applyDeath,
   applyStatGain,
   applyStatLevelFitnessBonus,
@@ -69,8 +70,10 @@ import {
   getTodayKey,
   getPenaltySummary,
   generatePenaltyQuest,
+  isWeekendDateKey,
 } from '../utils/rpg';
 import { loadState, mergeHistoryIntoState, saveState } from '../utils/storage';
+import { consumeInventoryEffect } from '../utils/boss';
 import StatsScreen from './StatsScreen';
 import SettingsScreen from './SettingsScreen';
 import AiCoachScreen from './AiCoachScreen';
@@ -210,6 +213,16 @@ function normalizeBadLabelsFromAi(data) {
     const t = String(data[i] ?? '').trim();
     return t || h.label;
   });
+}
+
+function getGoodHabitDisplayLabel(habit, daily) {
+  if (habit.id !== 'sleep') return habit.label;
+  const baseDate = daily?.date ?? getTodayKey();
+  const sleepDate = daily?.sleepCheckDate ?? addDaysToKey(baseDate, -1);
+  const label = String(habit.label ?? 'Ngủ đúng giờ')
+    .replace(/\s*hôm nay\s*/giu, ' ')
+    .trim();
+  return `Tối qua: ${label || 'Ngủ đúng giờ'} (${sleepDate})`;
 }
 
 function clampHp(hp, max) {
@@ -406,9 +419,26 @@ export default function QuestBoardScreen() {
     [persist]
   );
 
-  const applyDeathIfNeeded = useCallback(
-    (profile, beforeHp) => {
+  const applyDeathIfNeededWithInventory = useCallback(
+    (profile, beforeHp, inventory) => {
       if (beforeHp > 0 && isDead(profile)) {
+        const pardon = consumeInventoryEffect(inventory, 'death_pardon');
+        if (pardon.effect) {
+          queueMicrotask(() => {
+            showSystemMessage(
+              'MIỄN TỬ',
+              [`${pardon.effect.name} đã chặn một lần chết.`, 'HP còn lại: 1.'],
+              '#facc15'
+            );
+          });
+          return {
+            profile: { ...profile, hp: 1 },
+            inventory: pardon.inventory,
+            died: false,
+            blockedBy: pardon.effect,
+          };
+        }
+
         queueMicrotask(() => {
           showSystemMessage(
             'NGƯƠI ĐÃ NGÃ XUỐNG',
@@ -420,9 +450,14 @@ export default function QuestBoardScreen() {
             '#ef4444'
           );
         });
-        return applyDeath(profile);
+        return {
+          profile: applyDeath(profile),
+          inventory: pardon.inventory,
+          died: true,
+          blockedBy: null,
+        };
       }
-      return profile;
+      return { profile, inventory, died: false, blockedBy: null };
     },
     [showSystemMessage]
   );
@@ -617,7 +652,12 @@ export default function QuestBoardScreen() {
       persist(s);
     }
     const penaltySummary = getPenaltySummary(s.history, today);
-    if (penaltySummary?.needed && !s.daily.penaltyQuest && !s.daily.penaltyHandled) {
+    if (!penaltySummary?.needed && s.daily.penaltyQuest && !s.daily.penaltyHandled) {
+      const daily = { ...s.daily };
+      delete daily.penaltyQuest;
+      s = { ...s, daily };
+      persist(s);
+    } else if (penaltySummary?.needed && !s.daily.penaltyQuest && !s.daily.penaltyHandled) {
       const pQuest = generatePenaltyQuest(today);
       s = { ...s, daily: { ...s.daily, penaltyQuest: pQuest } };
       showSystemMessage(
@@ -664,18 +704,63 @@ export default function QuestBoardScreen() {
 
   const handlePenaltySkip = () => {
     commit((s) => {
+      if (isWeekendDateKey(s.daily?.date ?? getTodayKey())) {
+        queueMicrotask(() => {
+          showSystemMessage(
+            'CUOI TUAN NGHI',
+            ['Ngay nghi cuoi tuan: bo qua khong tru HP.'],
+            '#facc15'
+          );
+        });
+        const daily = { ...s.daily, penaltyHandled: true };
+        delete daily.penaltyQuest;
+        return { ...s, daily };
+      }
+
       const beforeHp = s.profile.hp;
-      let profile = damage(s.profile, PENALTY_HP_COST);
-      const died = beforeHp > 0 && isDead(profile);
-      profile = applyDeathIfNeeded(profile, beforeHp);
-      if (!died) {
+      let inventory = s.inventory;
+      const rest = consumeInventoryEffect(inventory, [
+        'valid_rest_day',
+        'protect_streak',
+      ]);
+      inventory = rest.inventory;
+
+      let damageAmount = rest.effect ? 0 : PENALTY_HP_COST;
+      if (!rest.effect) {
+        const shield = consumeInventoryEffect(inventory, 'prevent_hp_loss');
+        inventory = shield.inventory;
+        if (shield.effect) {
+          damageAmount = 0;
+          queueMicrotask(() => {
+            showSystemMessage(
+              'KHIÊN SINH MỆNH',
+              [`${shield.effect.name} đã chặn phạt HP.`],
+              '#38bdf8'
+            );
+          });
+        }
+      } else {
+        queueMicrotask(() => {
+          showSystemMessage(
+            'NGHỈ HỢP LỆ',
+            [`${rest.effect.name} đã chặn nhiệm vụ phạt hôm nay.`],
+            '#facc15'
+          );
+        });
+      }
+
+      let profile = damageAmount > 0 ? damage(s.profile, damageAmount) : s.profile;
+      const death = applyDeathIfNeededWithInventory(profile, beforeHp, inventory);
+      profile = death.profile;
+      inventory = death.inventory;
+      if (!death.died && !death.blockedBy && damageAmount > 0) {
         queueMicrotask(() => {
         showSystemMessage('HẬU QUẢ', ["Ngươi đã chọn con đường yếu đuối.", `-${PENALTY_HP_COST} HP`], '#ef4444');
         });
       }
       const daily = { ...s.daily, penaltyHandled: true };
       delete daily.penaltyQuest;
-      return { ...s, profile, daily };
+      return { ...s, profile, daily, inventory };
     });
   };
 
@@ -956,6 +1041,7 @@ export default function QuestBoardScreen() {
     commit((s) => {
       const prev = s.daily.badHabits[habitId];
       let profile = { ...s.profile };
+      let inventory = s.inventory;
       const milestoneBonus = getStatMilestoneBonus(profile.stats);
       const daily = { ...s.daily, badHabits: { ...s.daily.badHabits } };
 
@@ -967,20 +1053,46 @@ export default function QuestBoardScreen() {
         profile = afterXp;
         daily.badHabits[habitId] = 'ok';
       } else if (outcome === 'fail') {
+        if (isWeekendDateKey(s.daily?.date ?? getTodayKey())) {
+          daily.badHabits[habitId] = 'excused';
+          queueMicrotask(() => {
+            showSystemMessage(
+              'CUOI TUAN NGHI',
+              ['That bai cuoi tuan duoc tinh la nghi, khong tru HP.'],
+              '#facc15'
+            );
+          });
+          return { ...s, profile, daily, inventory };
+        }
+
         const beforeHp = profile.hp;
         const shielded = Boolean(profile.manaShieldActive);
-        const damageAmount = shielded
+        let damageAmount = shielded
             ? Math.ceil(milestoneBonus.badHabitDamage / 2)
             : milestoneBonus.badHabitDamage;
-        profile = damage(
-            { ...profile, manaShieldActive: false },
-            damageAmount
-        );
-        profile = applyDeathIfNeeded(profile, beforeHp);
+        const itemShield = consumeInventoryEffect(inventory, 'prevent_hp_loss');
+        inventory = itemShield.inventory;
+        if (itemShield.effect) {
+          damageAmount = 0;
+          queueMicrotask(() => {
+            showSystemMessage(
+              'KHIÊN SINH MỆNH',
+              [`${itemShield.effect.name} đã chặn thất bại thói quen xấu.`],
+              '#38bdf8'
+            );
+          });
+        }
+        profile =
+          damageAmount > 0
+            ? damage({ ...profile, manaShieldActive: false }, damageAmount)
+            : { ...profile, manaShieldActive: false };
+        const death = applyDeathIfNeededWithInventory(profile, beforeHp, inventory);
+        profile = death.profile;
+        inventory = death.inventory;
         daily.badHabits[habitId] = 'fail';
       }
 
-      let next = { ...s, profile, daily };
+      let next = { ...s, profile, daily, inventory };
       if (outcome === 'ok') next = gainStat(next, 'discipline', 3).state;
       return next;
     });
@@ -1080,6 +1192,20 @@ export default function QuestBoardScreen() {
         >
           <BossScreen
               state={state}
+              onBossAchievementUnlock={(titles) => {
+                const lines = Array.isArray(titles) ? titles : [String(titles ?? '')];
+                showSystemMessage('DANH HIEU BOSS', lines, '#a78bfa');
+              }}
+              onBossHunterRankUp={(rank) => {
+                showSystemMessage(
+                  'THANG HANG BOSS',
+                  [
+                    `Rank ${rank.rank} - ${rank.title}`,
+                    `${rank.score} diem san boss`,
+                  ],
+                  '#f5c842'
+                );
+              }}
               onBossStateChange={(updater) => {
                 commit((s) => ({
                   ...s,
@@ -1515,7 +1641,7 @@ export default function QuestBoardScreen() {
                                     style={[styles.cardLabel, done && styles.cardLabelDone]} 
                                     numberOfLines={1}
                                   >
-                                    {`${h.icon}  ${h.label}`}
+                                    {`${h.icon}  ${getGoodHabitDisplayLabel(h, daily)}`}
                                   </Text>
                                 }
                                 checked={done}

@@ -33,6 +33,7 @@ import {
   normalizeFitnessConfig,
   normalizeStats,
   getTodayKey,
+  isWeekendDateKey,
   pickOvercomeQuests,
   rollDailyExercise,
 } from './rpg';
@@ -48,6 +49,7 @@ import {
   readCachedDailyHabitsPayload,
   readCachedDailyOvercomePayload,
 } from './aiCoach';
+import { consumeInventoryEffect } from './boss';
 
 const USERS_COLLECTION = 'users';
 const BACKUPS_COLLECTION = 'backups';
@@ -291,7 +293,7 @@ const DEFAULT_PROFILE = () => ({
   stats: createDefaultStats(),
 });
 
-const MAX_HISTORY_DAYS = 30;
+const MAX_HISTORY_DAYS = 365 * 5;
 const BAD_HABIT_KEYS = ['no_social', 'no_junk', 'no_delay'];
 
 function defaultBossState() {
@@ -301,8 +303,14 @@ function defaultBossState() {
     tasks: [],
     rules: null,
     lootTable: null,
+    taskGenerator: null,
     results: [],
     lastSeenBossTemplateIds: [],
+    unlockedAchievementIds: [],
+    lastUnlockedAchievementIds: [],
+    lastAchievementUnlockedAt: 0,
+    notifiedHunterRank: '',
+    lastHunterRankUnlockedAt: 0,
   };
 }
 
@@ -334,6 +342,10 @@ function normalizeBossState(raw) {
       raw.lootTable && typeof raw.lootTable === 'object'
         ? raw.lootTable
         : null,
+    taskGenerator:
+      raw.taskGenerator && typeof raw.taskGenerator === 'object'
+        ? raw.taskGenerator
+        : null,
     results: Array.isArray(raw.results)
       ? raw.results.filter((result) => result && typeof result === 'object')
       : [],
@@ -343,6 +355,25 @@ function normalizeBossState(raw) {
           .filter(Boolean)
           .slice(-20)
       : [],
+    unlockedAchievementIds: Array.isArray(raw.unlockedAchievementIds)
+      ? raw.unlockedAchievementIds
+          .map((id) => String(id ?? '').trim())
+          .filter(Boolean)
+          .slice(-50)
+      : [],
+    lastUnlockedAchievementIds: Array.isArray(raw.lastUnlockedAchievementIds)
+      ? raw.lastUnlockedAchievementIds
+          .map((id) => String(id ?? '').trim())
+          .filter(Boolean)
+          .slice(-10)
+      : [],
+    lastAchievementUnlockedAt: Number.isFinite(Number(raw.lastAchievementUnlockedAt))
+      ? Math.max(0, Math.floor(Number(raw.lastAchievementUnlockedAt)))
+      : 0,
+    notifiedHunterRank: String(raw.notifiedHunterRank ?? ''),
+    lastHunterRankUnlockedAt: Number.isFinite(Number(raw.lastHunterRankUnlockedAt))
+      ? Math.max(0, Math.floor(Number(raw.lastHunterRankUnlockedAt)))
+      : 0,
   };
 }
 
@@ -398,8 +429,31 @@ function closeUnreportedBadHabits(state) {
   const missing = BAD_HABIT_KEYS.filter((key) => daily.badHabits?.[key] == null);
   if (missing.length <= 0) return state;
 
+  if (isWeekendDateKey(daily.date)) {
+    const badHabits = { ...daily.badHabits };
+    for (const key of missing) {
+      badHabits[key] = 'excused';
+    }
+    return {
+      ...state,
+      daily: {
+        ...daily,
+        badHabits,
+        badHabitAutoFailBlockedBy: 'Cuoi tuan nghi',
+      },
+    };
+  }
+
   const milestoneBonus = getStatMilestoneBonus(state.profile?.stats);
-  const damage = missing.length * milestoneBonus.badHabitDamage;
+  let inventory = normalizeInventoryState(state.inventory);
+  const excused = consumeInventoryEffect(inventory, [
+    'valid_rest_day',
+    'protect_streak',
+  ]);
+  inventory = excused.inventory;
+  const damage = excused.effect
+    ? 0
+    : missing.length * milestoneBonus.badHabitDamage;
   const beforeHp = Number(state.profile?.hp) || 0;
   let profile = {
     ...state.profile,
@@ -410,22 +464,33 @@ function closeUnreportedBadHabits(state) {
     lastAutoFailDate: daily.date,
   };
   if (beforeHp > 0 && profile.hp <= 0) {
-    profile = applyDeathToProfile(profile);
+    const pardon = consumeInventoryEffect(inventory, 'death_pardon');
+    inventory = pardon.inventory;
+    profile = pardon.effect
+      ? {
+          ...profile,
+          hp: 1,
+          lastAutoFailBlockedBy: pardon.effect.name,
+        }
+      : applyDeathToProfile(profile);
   }
 
   const badHabits = { ...daily.badHabits };
   for (const key of missing) {
-    badHabits[key] = 'fail';
+    badHabits[key] = excused.effect ? 'excused' : 'fail';
   }
 
   return {
     ...state,
     profile,
+    inventory,
     daily: {
       ...daily,
       badHabits,
       badHabitAutoFailCount: (daily.badHabitAutoFailCount ?? 0) + missing.length,
       badHabitAutoFailDamage: (daily.badHabitAutoFailDamage ?? 0) + damage,
+      badHabitAutoFailBlockedBy:
+        excused.effect?.name ?? daily.badHabitAutoFailBlockedBy,
     },
   };
 }
@@ -572,6 +637,7 @@ function freshDailyPayload(today, difficultyMult, fitnessConfig) {
   const exercise = rollDailyExercise(today, difficultyMult, fc);
   return {
     date: today,
+    sleepCheckDate: addDaysToKey(today, -1),
     workTasks: [],
     exercise: {
       ...exercise,

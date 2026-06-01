@@ -1,6 +1,8 @@
 # Boss image slots
 
-Drop transparent PNG boss sprites here, then map them in `src/utils/bossAssets.js`.
+These PNG files are live in `src/utils/bossAssets.js`.
+Replace any file with the same filename to upgrade the art without changing code.
+Use transparent background PNG, front-facing 2D pixel boss sprite.
 
 - `boss_procrastination_ghost.png`
 - `boss_lazy_demon.png`

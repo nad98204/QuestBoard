@@ -30,6 +30,33 @@ export function addDaysToKey(key, delta) {
   return `${yy}-${mm}-${dd}`;
 }
 
+export function isWeekendDateKey(key) {
+  if (typeof key !== 'string') return false;
+  const [y, m, d] = key.split('-').map(Number);
+  if (!y || !m || !d) return false;
+  const day = new Date(y, m - 1, d).getDay();
+  return day === 0 || day === 6;
+}
+
+function hasOnlyWeekendGap(lastQuestDate, today) {
+  if (
+    typeof lastQuestDate !== 'string' ||
+    typeof today !== 'string' ||
+    lastQuestDate >= today
+  ) {
+    return false;
+  }
+
+  let cursor = lastQuestDate;
+  while (cursor < today) {
+    const next = addDaysToKey(cursor, 1);
+    if (next === today) return true;
+    if (!isWeekendDateKey(next)) return false;
+    cursor = next;
+  }
+  return false;
+}
+
 export function streakMultiplier(streak) {
   if (streak >= 7) return 1.5;
   if (streak >= 3) return 1.2;
@@ -41,7 +68,9 @@ export function advanceStreak(profile) {
   const { lastQuestDate, streak } = profile;
   if (lastQuestDate === today) return profile;
   const y = addDaysToKey(today, -1);
-  const nextStreak = lastQuestDate === y ? streak + 1 : 1;
+  const keepsStreak =
+    lastQuestDate === y || hasOnlyWeekendGap(lastQuestDate, today);
+  const nextStreak = keepsStreak ? (Number(streak) || 0) + 1 : 1;
   return { ...profile, streak: nextStreak, lastQuestDate: today };
 }
 
@@ -389,6 +418,7 @@ export function checkPenaltyNeeded(history, todayKey) {
 export function getPenaltySummary(history, todayKey) {
   if (!Array.isArray(history)) return null;
   const yKey = addDaysToKey(todayKey, -1);
+  if (isWeekendDateKey(todayKey) || isWeekendDateKey(yKey)) return null;
   const yRow = history.find((h) => h.date === yKey);
   if (!yRow) return null;
   const total = yRow.exerciseTotal || 0;

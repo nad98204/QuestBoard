@@ -928,3 +928,818 @@ export async function fetchDailyOvercomeFromAI(params) {
   await writeAiOvercomeCacheRow(dateKey, normalized);
   return normalized;
 }
+
+const BOSS_TASK_PROMPT = `Bạn là AI thiết kế nhiệm vụ riêng cho Boss System của app QuestBoard.
+Nhiệm vụ boss phải tách biệt với nhiệm vụ cá nhân hằng ngày.
+Bắt buộc viết toàn bộ tên boss, tên nhiệm vụ, mục tiêu, bằng chứng, lý do bằng tiếng Việt có dấu. Không dùng tiếng Anh, trừ thuật ngữ game quen thuộc như HP, MP, Boss nếu cần.
+
+Muc tieu:
+- Tạo 4 nhiệm vụ boss rõ ràng, khó, làm được trong cửa sổ boss.
+- Không lặp máy móc với quest cá nhân đang có.
+- Không tạo việc nguy hiểm, bất hợp pháp, làm hại sức khỏe, hoặc quá sức.
+- Mỗi nhiệm vụ phải có bằng chứng cần báo cáo.
+- Nên cụ thể bằng số lượng/thời gian: hít đất bao nhiêu, squat bao nhiêu, tập trung sâu bao lâu, không MXH bao lâu.
+- Phải có 1 nhiệm vụ difficulty "Kết liễu".
+- Phải tuân theo Boss Challenge Profile trong tin user: boss càng hiếm thì task càng khó, bằng chứng càng rõ, hạn càng chặt.
+- Boss Thế Giới/Tinh Anh không được giao task nhẹ kiểu "làm 10 phút" hoặc "báo cáo chung chung".
+
+Chỉ trả về JSON object, không markdown:
+{
+  "reason": "lý do ngắn gọn vì sao bộ nhiệm vụ này hợp boss",
+  "tasks": [
+    {
+      "title": "...",
+      "category": "Công việc|Thể dục|Kỷ luật|Trí tuệ|Tổng hợp",
+      "difficulty": "Vừa|Khó|Rất khó|Cực khó|Kết liễu",
+      "objective": "...",
+      "deadlineMinutes": 90,
+      "proof": "..."
+    }
+  ]
+}`;
+
+function getBossAiChallengeProfile(boss, playerPower) {
+  const typeText = `${boss?.typeLabel ?? ''} ${boss?.difficulty ?? ''} ${boss?.generatedTier ?? ''}`.toLowerCase();
+  const lootTier = Math.max(1, Math.min(5, Math.floor(Number(boss?.lootTier) || 1)));
+  const bossPower = Math.max(1, Number(boss?.bossPower) || 1);
+  const powerRatio = bossPower / Math.max(1, Number(playerPower) || 1);
+
+  if (
+    lootTier >= 5 ||
+    typeText.includes('world') ||
+    typeText.includes('the gioi')
+  ) {
+    return {
+      tier: 'World',
+      label: 'Boss Thế Giới',
+      proofPassScore: 88,
+      minDeadlineMinutes: 45,
+      maxDeadlineMinutes: 240,
+      instruction:
+        'Nhiệm vụ cực khó, có số lượng/thời gian lớn, bắt buộc bằng chứng rất cụ thể. Ưu tiên 2 nhiệm vụ Cực khó, 1 nhiệm vụ Rất khó, 1 nhiệm vụ Kết liễu.',
+      proofInstruction:
+        'Chấm rất gắt: bằng chứng phải có số liệu, thời gian, kết quả cụ thể; câu mơ hồ không được duyệt.',
+      difficultyFloor: ['Rất khó', 'Cực khó', 'Cực khó', 'Kết liễu'],
+    };
+  }
+
+  if (
+    lootTier >= 4 ||
+    typeText.includes('elite') ||
+    typeText.includes('tinh anh') ||
+    typeText.includes('ac mong')
+  ) {
+    return {
+      tier: 'Elite',
+      label: 'Boss Tinh Anh',
+      proofPassScore: 82,
+      minDeadlineMinutes: 35,
+      maxDeadlineMinutes: 210,
+      instruction:
+        'Nhiệm vụ rất khó, đẩy người chơi vượt ngưỡng nhưng vẫn an toàn. Cần ít nhất 1 nhiệm vụ Cực khó và 1 nhiệm vụ Kết liễu.',
+      proofInstruction:
+        'Chấm gắt: bằng chứng phải khớp mục tiêu và có chi tiết đo được.',
+      difficultyFloor: ['Rất khó', 'Rất khó', 'Cực khó', 'Kết liễu'],
+    };
+  }
+
+  if (
+    lootTier >= 3 ||
+    typeText.includes('weekly') ||
+    typeText.includes('tuan') ||
+    powerRatio >= 1.35
+  ) {
+    return {
+      tier: 'Weekly',
+      label: 'Boss Tuần',
+      proofPassScore: 76,
+      minDeadlineMinutes: 45,
+      maxDeadlineMinutes: 360,
+      instruction:
+        'Nhiệm vụ tổng hợp khó hơn ngày thường, nên trải qua công việc, thể dục và kỷ luật. Cần 1 nhiệm vụ Rất khó và 1 nhiệm vụ Kết liễu.',
+      proofInstruction:
+        'Chấm khá gắt: bằng chứng phải có kết quả rõ, không chấp nhận nói chung chung.',
+      difficultyFloor: ['Khó', 'Rất khó', 'Rất khó', 'Kết liễu'],
+    };
+  }
+
+  if (lootTier >= 2 || typeText.includes('ky luat') || powerRatio >= 1.2) {
+    return {
+      tier: 'Hard',
+      label: 'Boss Khó',
+      proofPassScore: 72,
+      minDeadlineMinutes: 30,
+      maxDeadlineMinutes: 240,
+      instruction:
+        'Nhiệm vụ khó vừa phải, rõ mục tiêu và có bằng chứng cụ thể. Cần 1 nhiệm vụ Rất khó hoặc Kết liễu.',
+      proofInstruction:
+        'Chấm nghiêm túc: bằng chứng cần có thời gian, số lượng hoặc kết quả.',
+      difficultyFloor: ['Khó', 'Khó', 'Rất khó', 'Kết liễu'],
+    };
+  }
+
+  return {
+    tier: 'Standard',
+    label: 'Boss Thường',
+    proofPassScore: 70,
+    minDeadlineMinutes: 30,
+    maxDeadlineMinutes: 240,
+    instruction:
+      'Nhiệm vụ khó hơn quest hằng ngày nhưng không quá sức. Cần rõ số lượng/thời gian và 1 nhiệm vụ Kết liễu.',
+    proofInstruction:
+      'Chấm công bằng: bằng chứng cần cụ thể, không chấp nhận "xong rồi".',
+    difficultyFloor: ['Khó', 'Khó', 'Rất khó', 'Kết liễu'],
+  };
+}
+
+function safeShortText(value, fallback, maxLength) {
+  const text = String(value ?? '').trim();
+  return (text || fallback).slice(0, maxLength);
+}
+
+const BOSS_ENCOUNTER_PROMPT = `Bạn là AI sinh boss thật cho Boss System của app QuestBoard.
+Boss phải có cảm giác 2D pixel dark fantasy kiểu solo leveling, nhưng nội dung gameplay vẫn gắn với kỷ luật, công việc, thể dục, chuỗi.
+Bắt buộc viết toàn bộ text người chơi thấy được bằng tiếng Việt có dấu. Không trả về tên, lore, luật, nhiệm vụ, lootTheme bằng tiếng Anh.
+
+Vai tro cua AI:
+- Sinh tên boss riêng, chủ đề, lore ngắn, kỹ năng đặc biệt, luật, nhiệm vụ và chủ đề đồ rơi.
+- Sinh chỉ số gợi ý theo lực chiến người chơi, nhưng không được phá cân bằng.
+- Nhiệm vụ boss phải riêng, khó, rõ ràng, không trùng quest cá nhân.
+- Đồ rơi chỉ được dùng itemId trong danh sách allowedLootIds của tin user.
+- Không tạo việc nguy hiểm, bất hợp pháp, làm hại sức khỏe, hoặc quá sức.
+
+Chỉ trả về JSON object, không markdown:
+{
+  "reason": "lý do ngắn gọn vì sao boss này hợp với người chơi",
+  "boss": {
+    "name": "...",
+    "typeLabel": "Boss ...",
+    "themeLabel": "...",
+    "difficulty": "Khó|Rất khó|Ác mộng|Thế giới",
+    "lore": "...",
+    "visualPrompt": "...",
+    "powerMultiplier": 1.0,
+    "hpMultiplier": 1.0,
+    "statLine": { "attack": 100, "defense": 100, "speed": 100, "focus": 100 },
+    "specialSkill": { "name": "...", "description": "..." }
+  },
+  "rules": {
+    "groups": [
+      { "title": "Điều kiện tham gia", "lines": ["..."] },
+      { "title": "Luật riêng của boss", "lines": ["..."] }
+    ]
+  },
+  "tasks": [
+    {
+      "title": "...",
+      "category": "Công việc|Thể dục|Kỷ luật|Trí tuệ|Tổng hợp",
+      "difficulty": "Vừa|Khó|Rất khó|Cực khó|Kết liễu",
+      "objective": "...",
+      "deadlineMinutes": 90,
+      "proof": "..."
+    }
+  ],
+  "lootTable": {
+    "lootTheme": "...",
+    "mainLootRequirement": "...",
+    "entries": [
+      {
+        "itemId": "item_large_mana_potion",
+        "themeName": "...",
+        "condition": "...",
+        "description": "..."
+      }
+    ]
+  }
+}`;
+
+function normalizeAiStatLine(rawStatLine, baseStatLine) {
+  const base = baseStatLine && typeof baseStatLine === 'object' ? baseStatLine : {};
+  const raw = rawStatLine && typeof rawStatLine === 'object' ? rawStatLine : {};
+  const normalizeOne = (key) => {
+    const fallback = Math.max(1, Math.round(Number(base[key]) || 100));
+    return Math.round(
+      clampNumber(raw[key], Math.round(fallback * 0.72), Math.round(fallback * 1.38), fallback)
+    );
+  };
+  return {
+    attack: normalizeOne('attack'),
+    defense: normalizeOne('defense'),
+    speed: normalizeOne('speed'),
+    focus: normalizeOne('focus'),
+  };
+}
+
+function normalizeAiBossRulesPayload(parsedRules, boss) {
+  const rawGroups = Array.isArray(parsedRules?.groups) ? parsedRules.groups : [];
+  const groups = rawGroups
+    .filter((group) => group && typeof group === 'object')
+    .slice(0, 6)
+    .map((group, index) => ({
+      title: safeShortText(group.title, `Luật boss ${index + 1}`, 48),
+      lines: Array.isArray(group.lines)
+        ? group.lines
+            .map((line) => safeShortText(line, '', 130))
+            .filter(Boolean)
+            .slice(0, 5)
+        : [],
+    }))
+    .filter((group) => group.lines.length > 0);
+
+  const requiredPower = Math.max(1, Math.round(Number(boss?.requiredPower) || 0));
+  const defaultGroups = [
+    {
+      title: 'Điều kiện tham gia',
+      lines: [
+        `Yêu cầu lực chiến tối thiểu: ${requiredPower}.`,
+        'Nhiệm vụ boss tách biệt với quest cá nhân.',
+      ],
+    },
+    {
+      title: 'Luật bằng chứng',
+      lines: [
+        'Bằng chứng phải có thời gian, số lượng hoặc kết quả cụ thể.',
+        'AI sẽ chấm bằng chứng trước khi tính sát thương.',
+      ],
+    },
+  ];
+
+  return {
+    bossId: boss?.id ?? 'ai_boss',
+    groups: groups.length >= 2 ? groups : defaultGroups,
+  };
+}
+
+function normalizeAiBossLootTable(parsedLootTable, baseLootTable, boss) {
+  const base =
+    baseLootTable && typeof baseLootTable === 'object' && !Array.isArray(baseLootTable)
+      ? baseLootTable
+      : {};
+  const baseEntries = Array.isArray(base.entries) ? base.entries : [];
+  const aiEntries = Array.isArray(parsedLootTable?.entries)
+    ? parsedLootTable.entries.filter((entry) => entry && typeof entry === 'object')
+    : [];
+  const aiByItemId = new Map(
+    aiEntries
+      .map((entry) => [String(entry.itemId ?? entry.id ?? '').trim(), entry])
+      .filter(([id]) => Boolean(id))
+  );
+  const entries = baseEntries.map((entry) => {
+    const itemId = String(entry.itemId ?? entry.id ?? '').trim();
+    const ai = aiByItemId.get(itemId) ?? {};
+    return {
+      ...entry,
+      id: itemId || entry.id,
+      itemId: itemId || entry.itemId,
+      name: safeShortText(ai.themeName ?? ai.name, entry.name, 48),
+      condition: safeShortText(ai.condition, entry.condition, 80),
+      description: safeShortText(ai.description, entry.description, 140),
+    };
+  });
+
+  return {
+    ...base,
+    bossId: boss?.id ?? base.bossId,
+    lootTheme: safeShortText(parsedLootTable?.lootTheme, boss?.themeLabel ?? 'Đồ rơi boss', 80),
+    mainLootRequirement: safeShortText(
+      parsedLootTable?.mainLootRequirement,
+      base.mainLootRequirement ?? 'Theo điều kiện sát thương của boss',
+      120
+    ),
+    entries: entries.length ? entries : baseEntries,
+  };
+}
+
+function normalizeAiBossEncounterPayload(parsed, baseBoss, baseLootTable, playerPower, now = Date.now()) {
+  if (!baseBoss || typeof baseBoss !== 'object') {
+    throw new Error('AI boss encounter: thiếu boss nền');
+  }
+  const rawBoss = parsed?.boss && typeof parsed.boss === 'object' ? parsed.boss : {};
+  const basePower = Math.max(1000, Math.round(Number(playerPower) || 0));
+  const baseBossPower = Math.max(1, Math.round(Number(baseBoss.bossPower) || basePower));
+  const baseHp = Math.max(1, Math.round(Number(baseBoss.maxHp) || baseBossPower * 4));
+  const powerMultiplier = clampNumber(rawBoss.powerMultiplier, 0.92, 1.12, 1, 2);
+  const hpMultiplier = clampNumber(rawBoss.hpMultiplier, 0.9, 1.15, 1, 2);
+  const bossPower = Math.max(1, Math.round(baseBossPower * powerMultiplier));
+  const maxHp = Math.max(1, Math.round(baseHp * hpMultiplier));
+  const requiredPower = Math.max(
+    1,
+    Math.round(clampNumber(baseBoss.requiredPower, bossPower * 0.55, bossPower * 1.18, bossPower * 0.75))
+  );
+  const recommendedPower = Math.max(
+    requiredPower,
+    Math.round(clampNumber(baseBoss.recommendedPower, requiredPower, bossPower * 1.2, bossPower))
+  );
+  const boss = {
+    ...baseBoss,
+    id: `boss_ai_${baseBoss.templateId ?? baseBoss.id}_${now}`,
+    name: safeShortText(rawBoss.name, baseBoss.name ?? 'AI Boss', 52),
+    typeLabel: safeShortText(rawBoss.typeLabel, baseBoss.typeLabel ?? 'Boss', 42),
+    themeLabel: safeShortText(rawBoss.themeLabel, baseBoss.themeLabel ?? 'Chủ đề AI', 64),
+    difficulty: safeShortText(rawBoss.difficulty, baseBoss.difficulty ?? 'Khó', 24),
+    generatedBy: 'openai_boss_generator_v1',
+    generatedTier: baseBoss.generatedTier ?? 'Standard',
+    playerPowerAtReveal: basePower,
+    bossPower,
+    requiredPower,
+    recommendedPower,
+    maxHp,
+    currentHp: maxHp,
+    level: Math.max(1, Math.round(Math.sqrt(bossPower) / 2)),
+    statLine: normalizeAiStatLine(rawBoss.statLine, baseBoss.statLine),
+    status: 'active',
+    revealedAt: now,
+    lore: safeShortText(rawBoss.lore, '', 240),
+    visualPrompt: safeShortText(rawBoss.visualPrompt, '', 260),
+    specialSkill: {
+      name: safeShortText(rawBoss.specialSkill?.name, baseBoss.specialSkill?.name ?? 'Kỹ năng AI', 48),
+      description: safeShortText(
+        rawBoss.specialSkill?.description,
+        baseBoss.specialSkill?.description ?? 'Kỹ năng riêng của boss.',
+        160
+      ),
+    },
+  };
+  const challenge = getBossAiChallengeProfile(boss, playerPower);
+  const rules = normalizeAiBossRulesPayload(parsed?.rules, boss);
+  const tasks = normalizeAiBossTasksPayload(parsed, boss, now, challenge).tasks;
+  const lootTable = normalizeAiBossLootTable(parsed?.lootTable, baseLootTable, boss);
+
+  return {
+    boss,
+    rules,
+    tasks,
+    lootTable,
+    reason: safeShortText(parsed?.reason, 'AI đã sinh boss mới.', 220),
+    generatedAt: now,
+    generatedBy: 'openai_boss_generator_v1',
+    challengeTier: challenge.tier,
+  };
+}
+
+function normalizeBossTaskCategory(value) {
+  const text = String(value ?? '').trim();
+  const labels = {
+    'Cong viec': 'Công việc',
+    'Công việc': 'Công việc',
+    'The duc': 'Thể dục',
+    'Thể dục': 'Thể dục',
+    'Ky luat': 'Kỷ luật',
+    'Kỷ luật': 'Kỷ luật',
+    'Tri tue': 'Trí tuệ',
+    'Trí tuệ': 'Trí tuệ',
+    'Tong hop': 'Tổng hợp',
+    'Tổng hợp': 'Tổng hợp',
+  };
+  return labels[text] ?? 'Tổng hợp';
+}
+
+function normalizeDifficultyLabel(value) {
+  const text = String(value ?? '').trim();
+  const labels = {
+    Vua: 'Vừa',
+    'Vừa': 'Vừa',
+    Kho: 'Khó',
+    'Khó': 'Khó',
+    'Rat kho': 'Rất khó',
+    'Rất khó': 'Rất khó',
+    'Cuc kho': 'Cực khó',
+    'Cực khó': 'Cực khó',
+    'Ket lieu': 'Kết liễu',
+    'Kết liễu': 'Kết liễu',
+  };
+  return labels[text] ?? '';
+}
+
+function difficultyRank(value) {
+  return ['Vừa', 'Khó', 'Rất khó', 'Cực khó', 'Kết liễu'].indexOf(
+    normalizeDifficultyLabel(value)
+  );
+}
+
+function normalizeBossTaskDifficulty(value, index, profile, total = 4) {
+  const fallback = index === total - 1 ? 'Kết liễu' : index === 0 ? 'Khó' : 'Rất khó';
+  const normalized = normalizeDifficultyLabel(value) || fallback;
+  const floor = normalizeDifficultyLabel(profile?.difficultyFloor?.[index]) || fallback;
+  return difficultyRank(normalized) >= difficultyRank(floor) ? normalized : floor;
+}
+
+function normalizeAiBossTasksPayload(parsed, boss, now = Date.now(), profile = null) {
+  const rawTasks = Array.isArray(parsed?.tasks) ? parsed.tasks : [];
+  const selected = rawTasks
+    .filter((task) => task && typeof task === 'object')
+    .slice(0, 4);
+  if (selected.length < 3) {
+    throw new Error('AI boss tasks: không đủ số nhiệm vụ hợp lệ');
+  }
+
+  const maxHp = Math.max(1, Number(boss?.maxHp) || 1);
+  const bossEndsAt = Number(boss?.endsAt);
+  const finalEndsAt = Number.isFinite(bossEndsAt)
+    ? bossEndsAt
+    : now + 6 * 60 * 60 * 1000;
+  const weights = selected.length >= 5
+    ? [0.18, 0.2, 0.2, 0.18, 0.32]
+    : [0.24, 0.26, 0.2, 0.34];
+  const challenge = profile ?? getBossAiChallengeProfile(boss, 0);
+  const tasks = selected.map((task, index) => {
+    const difficulty =
+      index === selected.length - 1
+        ? 'Kết liễu'
+        : normalizeBossTaskDifficulty(task.difficulty, index, challenge, selected.length);
+    const minutes = Math.max(
+      challenge.minDeadlineMinutes,
+      Math.min(
+        challenge.maxDeadlineMinutes,
+        Math.floor(Number(task.deadlineMinutes) || 180)
+      )
+    );
+    const deadlineAt = Math.min(finalEndsAt, now + minutes * 60 * 1000);
+    return {
+      id: `ai_boss_task_${now}_${index + 1}`,
+      title: String(task.title ?? `Lệnh Boss ${index + 1}`).trim().slice(0, 60),
+      category: normalizeBossTaskCategory(task.category),
+      difficulty,
+      objective: String(task.objective ?? '').trim().slice(0, 220),
+      deadline: `${minutes} phút sau khi sinh nhiệm vụ`,
+      deadlineAt,
+      expiresAt: deadlineAt,
+      damage: Math.max(1, Math.round(maxHp * (weights[index] ?? 0.22))),
+      status: 'Available',
+      proof: String(task.proof ?? 'Báo cáo kết quả cụ thể.').trim().slice(0, 180),
+      generatedBy: 'openai_boss_task_generator_v1',
+      challengeTier: challenge.tier,
+      proofPassScore: challenge.proofPassScore,
+    };
+  });
+
+  if (!tasks.some((task) => task.difficulty === 'Kết liễu')) {
+    tasks[tasks.length - 1].difficulty = 'Kết liễu';
+  }
+
+  return {
+    reason: String(parsed?.reason ?? '').trim().slice(0, 220),
+    tasks,
+    generatedAt: now,
+    generatedBy: 'openai_boss_task_generator_v1',
+    challengeTier: challenge.tier,
+    proofPassScore: challenge.proofPassScore,
+  };
+}
+
+function collectCurrentQuestTitles(state) {
+  const daily = state?.daily ?? {};
+  const titles = [];
+  if (Array.isArray(daily.workTasks)) {
+    for (const task of daily.workTasks) {
+      if (task?.title) titles.push(String(task.title));
+    }
+  }
+  if (Array.isArray(daily.overcomeQuests)) {
+    for (const quest of daily.overcomeQuests) {
+      if (quest?.title) titles.push(String(quest.title));
+    }
+  }
+  return [...new Set(titles.map((title) => title.trim()).filter(Boolean))]
+    .slice(0, 12);
+}
+
+export async function fetchBossEncounterFromAI(params) {
+  const {
+    state,
+    baseBoss,
+    baseLootTable,
+    playerPower,
+    eventType,
+    now = Date.now(),
+  } = params ?? {};
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('Thieu EXPO_PUBLIC_OPENAI_API_KEY');
+  if (!baseBoss || typeof baseBoss !== 'object') {
+    throw new Error('Chưa có boss nền để AI sinh encounter');
+  }
+
+  const profile = state?.profile ?? {};
+  const daily = state?.daily ?? {};
+  const currentTitles = collectCurrentQuestTitles(state);
+  const challenge = getBossAiChallengeProfile(baseBoss, playerPower);
+  const allowedLootIds = Array.isArray(baseLootTable?.entries)
+    ? baseLootTable.entries
+        .map((entry) => String(entry.itemId ?? entry.id ?? '').trim())
+        .filter(Boolean)
+    : [];
+  const userLine = [
+    `Event type: ${eventType ?? 'unknown'}.`,
+    `Base boss template: ${baseBoss.name} | ${baseBoss.typeLabel} | ${baseBoss.themeLabel} | ${baseBoss.difficulty}.`,
+    `Base boss power: ${baseBoss.bossPower}. Base HP: ${baseBoss.maxHp}. Loot tier: ${baseBoss.lootTier}.`,
+    `Lực chiến người chơi: ${Number(playerPower) || 0}. Level: ${Number(profile.level) || 1}. Chuỗi: ${Number(profile.streak) || 0}.`,
+    `Boss Challenge Profile: ${challenge.label} / ${challenge.tier}. ${challenge.instruction}`,
+    `Ngay hien tai: ${daily.date ?? 'unknown'}.`,
+    `Quest cá nhân đang có cần tránh lặp: ${currentTitles.length ? currentTitles.join(' | ') : 'không có'}.`,
+    `allowedLootIds: ${allowedLootIds.join(', ') || 'none'}.`,
+    'Hãy sinh encounter boss hoàn chỉnh: danh tính boss, chỉ số gợi ý, kỹ năng riêng, luật, nhiệm vụ và chủ đề đồ rơi.',
+    'powerMultiplier chỉ trong khoảng 0.92-1.12, hpMultiplier chỉ trong khoảng 0.90-1.15.',
+    'Nhiệm vụ phải có bằng chứng rõ và đủ khó theo Boss Challenge Profile.',
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: BOSS_ENCOUNTER_PROMPT },
+          { role: 'user', content: userLine },
+        ],
+        temperature: 0.95,
+        max_tokens: 1900,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI boss encounter HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI boss encounter: không đọc được body');
+  }
+  const text = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!text) throw new Error('OpenAI boss encounter: không có nội dung');
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(text));
+  } catch {
+    throw new Error('OpenAI boss encounter: không đọc được JSON');
+  }
+
+  return normalizeAiBossEncounterPayload(
+    parsedRaw,
+    baseBoss,
+    baseLootTable,
+    playerPower,
+    now
+  );
+}
+
+export async function fetchBossTasksFromAI(params) {
+  const { state, boss, playerPower, now = Date.now() } = params ?? {};
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('Thieu EXPO_PUBLIC_OPENAI_API_KEY');
+  if (!boss || typeof boss !== 'object') {
+    throw new Error('Chưa có boss để sinh nhiệm vụ AI');
+  }
+
+  const profile = state?.profile ?? {};
+  const daily = state?.daily ?? {};
+  const currentTitles = collectCurrentQuestTitles(state);
+  const challenge = getBossAiChallengeProfile(boss, playerPower);
+  const userLine = [
+    `Boss: ${boss.name} | ${boss.typeLabel} | ${boss.themeLabel} | ${boss.difficulty}.`,
+    `Boss HP: ${boss.maxHp}. Boss power: ${boss.bossPower}. Loot tier: ${boss.lootTier}.`,
+    `Lực chiến người chơi: ${Number(playerPower) || 0}. Level: ${Number(profile.level) || 1}. Chuỗi: ${Number(profile.streak) || 0}.`,
+    `Boss Challenge Profile: ${challenge.label} / ${challenge.tier}.`,
+    `Độ nặng nhiệm vụ: ${challenge.instruction}`,
+    `Độ chặt bằng chứng: cần đạt tối thiểu ${challenge.proofPassScore}/100. ${challenge.proofInstruction}`,
+    `Hạn mỗi nhiệm vụ: từ ${challenge.minDeadlineMinutes} đến ${challenge.maxDeadlineMinutes} phút.`,
+    `Sàn độ khó cho 4 nhiệm vụ: ${challenge.difficultyFloor.join(' | ')}.`,
+    `Ngày hiện tại: ${daily.date ?? 'không rõ'}.`,
+    `Thời gian boss còn lại theo phút: ${Math.max(30, Math.round(((Number(boss.endsAt) || now) - now) / 60000))}.`,
+    `Quest cá nhân đang có cần tránh lặp: ${currentTitles.length ? currentTitles.join(' | ') : 'không có'}.`,
+    'Hãy sinh nhiệm vụ riêng của boss, khó hơn quest hằng ngày, nhưng vẫn an toàn và có bằng chứng rõ ràng.',
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 55_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: BOSS_TASK_PROMPT },
+          { role: 'user', content: userLine },
+        ],
+        temperature: 0.95,
+        max_tokens: 1100,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI boss tasks HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI boss tasks: không đọc được body');
+  }
+  const text = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!text) throw new Error('OpenAI boss tasks: không có nội dung');
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(text));
+  } catch {
+    throw new Error('OpenAI boss tasks: không đọc được JSON');
+  }
+
+  return normalizeAiBossTasksPayload(parsedRaw, boss, now, challenge);
+}
+
+const BOSS_PROOF_PROMPT = `Bạn là AI chấm bằng chứng nhiệm vụ boss của app QuestBoard.
+Nhiệm vụ boss là nhiệm vụ riêng, khó và cần bằng chứng rõ ràng.
+Toàn bộ feedback và missing phải viết bằng tiếng Việt có dấu.
+
+Nguyên tắc chấm:
+- Chỉ duyệt khi bằng chứng khớp với mục tiêu và yêu cầu bằng chứng của nhiệm vụ.
+- Bằng chứng phải có thông tin cụ thể: thời gian, số lượng, kết quả, sản phẩm đã làm, hoặc mô tả quá trình đủ rõ.
+- Không duyệt các câu chung chung như "xong rồi", "đã làm", "ok", "hoàn thành" nếu không có chi tiết.
+- Không yêu cầu ảnh, GPS, video nếu nhiệm vụ không bắt buộc; bằng chứng text cụ thể là đủ.
+- Chấm nghiêm khắc nhưng công bằng, không phán xét đạo đức.
+- Phải tuân theo Boss Challenge Profile trong tin user: Boss Thế Giới/Tinh Anh cần bằng chứng chặt hơn boss thường.
+- Nếu score dưới pass score của profile thì approved bắt buộc là false.
+
+Chỉ trả về JSON object, không markdown:
+{
+  "approved": true,
+  "score": 0,
+  "feedback": "nhận xét ngắn gọn cho người chơi",
+  "missing": ["thiếu gì nếu chưa đạt"]
+}`;
+
+function normalizeBossProofVerdict(parsed, passScore = 70) {
+  const rawScore = Math.round(Number(parsed?.score) || 0);
+  const score = Math.max(0, Math.min(100, rawScore));
+  const threshold = Math.max(60, Math.min(95, Math.round(Number(passScore) || 70)));
+  const approved = Boolean(parsed?.approved) && score >= threshold;
+  const feedback =
+    String(
+      parsed?.feedback ??
+        (approved ? 'Bằng chứng đạt yêu cầu.' : 'Bằng chứng chưa đủ cụ thể.')
+    )
+      .trim()
+      .slice(0, 220) || (approved ? 'Bằng chứng đạt yêu cầu.' : 'Bằng chứng chưa đủ.');
+  const missing = Array.isArray(parsed?.missing)
+    ? parsed.missing
+        .map((item) => String(item ?? '').trim())
+        .filter(Boolean)
+        .slice(0, 4)
+    : [];
+  const finalMissing =
+    !approved && score < threshold && missing.length === 0
+      ? [`Cần đạt tối thiểu ${threshold}/100 cho boss này`]
+      : missing;
+
+  return {
+    approved,
+    score,
+    feedback,
+    missing: finalMissing,
+    passScore: threshold,
+    checkedBy: 'openai_boss_proof_grader_v1',
+  };
+}
+
+export async function gradeBossTaskProofWithAI(params) {
+  const {
+    state,
+    boss,
+    task,
+    proofText,
+    playerPower,
+    now = Date.now(),
+  } = params ?? {};
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('Thiếu EXPO_PUBLIC_OPENAI_API_KEY');
+  if (!boss || typeof boss !== 'object') {
+    throw new Error('Chưa có boss để chấm bằng chứng');
+  }
+  if (!task || typeof task !== 'object') {
+    throw new Error('Chưa có nhiệm vụ boss để chấm bằng chứng');
+  }
+  const proof = String(proofText ?? '').trim();
+  if (proof.length < 12) {
+    throw new Error('Bằng chứng quá ngắn, hãy nhập rõ hơn');
+  }
+
+  const profile = state?.profile ?? {};
+  const challenge = getBossAiChallengeProfile(boss, playerPower);
+  const taskPassScore = Math.max(
+    challenge.proofPassScore,
+    Math.round(Number(task?.proofPassScore) || 0)
+  );
+  const userLine = [
+    `Thoi diem cham: ${new Date(now).toISOString()}.`,
+    `Boss: ${boss.name} | ${boss.typeLabel} | ${boss.difficulty}. Loot tier: ${boss.lootTier}.`,
+    `Boss Challenge Profile: ${challenge.label} / ${challenge.tier}.`,
+    `Điểm bằng chứng bắt buộc: ${taskPassScore}/100.`,
+    `Chế độ chấm: ${challenge.proofInstruction}`,
+    `Lực chiến người chơi: ${Number(playerPower) || 0}. Level: ${Number(profile.level) || 1}. Chuỗi: ${Number(profile.streak) || 0}.`,
+    `Tên nhiệm vụ: ${task.title}.`,
+    `Nhóm nhiệm vụ: ${task.category}. Độ khó: ${task.difficulty}.`,
+    `Mục tiêu: ${task.objective}.`,
+    `Yêu cầu bằng chứng: ${task.proof || 'Báo cáo kết quả cụ thể.'}.`,
+    `Hạn chót: ${task.deadline}.`,
+    `Bằng chứng người chơi nộp: ${proof}`,
+    'Hãy chấm xem bằng chứng này có đủ để tính hoàn thành nhiệm vụ boss không.',
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: BOSS_PROOF_PROMPT },
+          { role: 'user', content: userLine },
+        ],
+        temperature: 0.2,
+        max_tokens: 450,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI boss proof HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI boss proof: không đọc được body');
+  }
+  const text = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!text) throw new Error('OpenAI boss proof: không có nội dung');
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(text));
+  } catch {
+    throw new Error('OpenAI boss proof: không đọc được JSON');
+  }
+
+  return normalizeBossProofVerdict(parsedRaw, taskPassScore);
+}

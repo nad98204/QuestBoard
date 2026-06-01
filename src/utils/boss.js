@@ -20,99 +20,107 @@ function titleFromId(id) {
     .join(' ');
 }
 
+function normalizeStringList(value, limit = 50) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean)
+    .slice(-Math.max(0, nonNegativeInt(limit)));
+}
+
 const ITEM_CATALOG = {
   item_large_hp_potion: {
-    name: 'Binh Mau Lon',
+    name: 'Bình Máu Lớn',
     rarity: 'Rare',
     iconKey: 'item_large_hp_potion',
-    scope: 'Ngoai boss',
+    scope: 'Ngoài boss',
     useType: 'restore_hp',
-    description: 'Hoi 25 HP.',
-    useStatus: 'San sang',
+    description: 'Hồi 25 HP.',
+    useStatus: 'Sẵn sàng',
   },
   item_large_mana_potion: {
-    name: 'Binh Mana Lon',
+    name: 'Bình Mana Lớn',
     rarity: 'Rare',
     iconKey: 'item_large_mana_potion',
-    scope: 'Ngoai boss',
+    scope: 'Ngoài boss',
     useType: 'restore_mp',
-    description: 'Hoi 35 MP.',
-    useStatus: 'San sang',
+    description: 'Hồi 35 MP.',
+    useStatus: 'Sẵn sàng',
   },
   item_life_shield: {
-    name: 'Khien Sinh Menh',
+    name: 'Khiên Sinh Mệnh',
     rarity: 'Rare',
     iconKey: 'item_life_shield',
-    scope: 'Ngoai boss',
+    scope: 'Ngoài boss',
     useType: 'prevent_hp_loss',
-    description: 'Chan mat HP 1 lan.',
-    useStatus: 'San sang',
+    description: 'Chặn mất HP 1 lần.',
+    useStatus: 'Sẵn sàng',
   },
   item_streak_freeze: {
-    name: 'Binh Dong Bang Chuoi',
+    name: 'Bình Đóng Băng Chuỗi',
     rarity: 'Epic',
     iconKey: 'item_streak_freeze',
-    scope: 'Ngoai boss',
+    scope: 'Ngoài boss',
     useType: 'protect_streak',
-    description: 'Nghi 1 ngay khong mat streak.',
-    useStatus: 'Cuc hiem',
+    description: 'Nghỉ 1 ngày không mất chuỗi.',
+    useStatus: 'Cực hiếm',
   },
   item_rest_permit: {
-    name: 'Giay Nghi Phep',
+    name: 'Giấy Nghỉ Phép',
     rarity: 'Legendary',
     iconKey: 'item_rest_permit',
-    scope: 'Ngoai boss',
+    scope: 'Ngoài boss',
     useType: 'valid_rest_day',
-    description: 'Mot ngay nghi hop le, khong phat HP/streak.',
-    useStatus: 'Cuc hiem',
+    description: 'Một ngày nghỉ hợp lệ, không phạt HP/chuỗi.',
+    useStatus: 'Cực hiếm',
   },
   item_death_pardon: {
-    name: 'Lenh Mien Tu',
+    name: 'Lệnh Miễn Tử',
     rarity: 'Mythic',
     iconKey: 'item_death_pardon',
-    scope: 'Ngoai boss',
+    scope: 'Ngoài boss',
     useType: 'death_pardon',
-    description: 'Mot lan chet khong mat streak/debuff.',
-    useStatus: 'Cuc hiem',
+    description: 'Một lần chết không mất chuỗi hoặc dính debuff.',
+    useStatus: 'Cực hiếm',
   },
   item_lucky_charm: {
-    name: 'Bua May Man Nho',
+    name: 'Bùa May Mắn Nhỏ',
     rarity: 'Epic',
     iconKey: 'item_lucky_charm',
     scope: 'Trong boss',
     useType: 'loot_boost',
-    description: 'Tang nhe ti le loot hiem trong 1 tran sau.',
-    useStatus: 'Dung trong boss',
+    description: 'Tăng nhẹ tỉ lệ đồ hiếm trong 1 trận sau.',
+    useStatus: 'Dùng trong boss',
   },
   item_extend_order: {
-    name: 'Lenh Gia Han',
+    name: 'Lệnh Gia Hạn',
     rarity: 'Epic',
     iconKey: 'item_extend_order',
     scope: 'Trong boss',
     useType: 'extend_boss_task',
-    description: 'Gia han 1 nhiem vu boss.',
-    useStatus: 'Dung trong boss',
+    description: 'Gia hạn 1 nhiệm vụ boss.',
+    useStatus: 'Dùng trong boss',
   },
   item_world_core: {
-    name: 'Loi Boss The Gioi',
+    name: 'Lõi Boss Thế Giới',
     rarity: 'Mythic',
     iconKey: 'item_world_core',
-    scope: 'Nguyen lieu',
+    scope: 'Nguyên liệu',
     useType: 'crafting_material',
-    description: 'Nguyen lieu cuc hiem cho he boss sau nay.',
-    useStatus: 'Chua mo khoa',
+    description: 'Nguyên liệu cực hiếm cho hệ boss sau này.',
+    useStatus: 'Chưa mở khóa',
   },
 };
 
 function getItemDefinition(itemId) {
   return ITEM_CATALOG[itemId] ?? {
     name: titleFromId(itemId),
-    rarity: 'Unknown',
+    rarity: 'Không rõ',
     iconKey: itemId,
-    scope: 'Unknown',
+    scope: 'Không rõ',
     useType: 'unknown',
     description: '',
-    useStatus: 'Chua ro',
+    useStatus: 'Chưa rõ',
   };
 }
 
@@ -248,7 +256,7 @@ function addActiveInventoryEffect(inventory, item, now = Date.now()) {
     return {
       inventory: base,
       added: false,
-      reason: 'Hieu ung nay dang active, khong the dung trung.',
+      reason: 'Hiệu ứng này đang bật, không thể dùng trùng.',
     };
   }
 
@@ -274,6 +282,42 @@ function addActiveInventoryEffect(inventory, item, now = Date.now()) {
   };
 }
 
+export function consumeInventoryEffect(inventory, useTypes, now = Date.now()) {
+  const base = normalizeInventoryObject(inventory);
+  const types = Array.isArray(useTypes) ? useTypes : [useTypes];
+  const normalizedTypes = types.map((type) => String(type ?? '')).filter(Boolean);
+  if (normalizedTypes.length === 0) {
+    return { inventory: base, effect: null };
+  }
+
+  const index = base.activeEffects.findIndex(
+    (effect) =>
+      effect?.status === 'active' && normalizedTypes.includes(effect.useType)
+  );
+  if (index < 0) {
+    return { inventory: base, effect: null };
+  }
+
+  const effect = base.activeEffects[index];
+  const activeEffects = base.activeEffects.map((row, rowIndex) =>
+    rowIndex === index
+      ? {
+          ...row,
+          status: 'consumed',
+          consumedAt: now,
+        }
+      : row
+  );
+
+  return {
+    inventory: {
+      ...base,
+      activeEffects,
+    },
+    effect,
+  };
+}
+
 export function useInventoryItem(state, itemId, now = Date.now()) {
   const itemKey = String(itemId ?? '').trim();
   const inventory = normalizeInventoryObject(state?.inventory);
@@ -283,7 +327,7 @@ export function useInventoryItem(state, itemId, now = Date.now()) {
     return {
       state,
       success: false,
-      message: 'Khong co vat pham nay trong tui do.',
+      message: 'Không có vật phẩm này trong túi đồ.',
     };
   }
 
@@ -305,7 +349,7 @@ export function useInventoryItem(state, itemId, now = Date.now()) {
       return {
         state,
         success: false,
-        message: 'HP dang day, khong can dung binh mau.',
+        message: 'HP đang đầy, không cần dùng bình máu.',
       };
     }
     const consumed = consumeInventoryItem(inventory, itemKey, now);
@@ -316,7 +360,7 @@ export function useInventoryItem(state, itemId, now = Date.now()) {
         inventory: consumed.inventory,
       },
       success: true,
-      message: `Da dung ${item.name}: +${after - before} HP.`,
+      message: `Đã dùng ${item.name}: +${after - before} HP.`,
     };
   }
 
@@ -328,7 +372,7 @@ export function useInventoryItem(state, itemId, now = Date.now()) {
       return {
         state,
         success: false,
-        message: 'MP dang day, khong can dung binh mana.',
+        message: 'MP đang đầy, không cần dùng bình mana.',
       };
     }
     const consumed = consumeInventoryItem(inventory, itemKey, now);
@@ -339,7 +383,51 @@ export function useInventoryItem(state, itemId, now = Date.now()) {
         inventory: consumed.inventory,
       },
       success: true,
-      message: `Da dung ${item.name}: +${after - before} MP.`,
+      message: `Đã dùng ${item.name}: +${after - before} MP.`,
+    };
+  }
+
+  if (useType === 'extend_boss_task') {
+    const bossState = state?.boss && typeof state.boss === 'object'
+      ? state.boss
+      : null;
+    const currentBoss =
+      bossState?.currentBoss && typeof bossState.currentBoss === 'object'
+        ? bossState.currentBoss
+        : null;
+    const status = String(currentBoss?.status ?? '');
+    const endsAt = Number(currentBoss?.endsAt);
+    if (
+      !currentBoss ||
+      ['defeated', 'expired'].includes(status) ||
+      !Number.isFinite(endsAt)
+    ) {
+      return {
+        state,
+        success: false,
+        message: 'Chỉ có thể gia hạn khi boss đang hoạt động.',
+      };
+    }
+
+    const extensionMs = 2 * 60 * 60 * 1000;
+    const nextEndsAt = Math.max(now, endsAt) + extensionMs;
+    const consumed = consumeInventoryItem(inventory, itemKey, now);
+    return {
+      state: {
+        ...state,
+        boss: {
+          ...bossState,
+          currentBoss: {
+            ...currentBoss,
+            endsAt: nextEndsAt,
+            extendedAt: now,
+            extensionItemId: itemKey,
+          },
+        },
+        inventory: consumed.inventory,
+      },
+      success: true,
+      message: `Đã dùng ${item.name}: boss được gia hạn 2 giờ.`,
     };
   }
 
@@ -350,7 +438,6 @@ export function useInventoryItem(state, itemId, now = Date.now()) {
       'valid_rest_day',
       'death_pardon',
       'loot_boost',
-      'extend_boss_task',
     ].includes(useType)
   ) {
     const withEffect = addActiveInventoryEffect(inventory, item, now);
@@ -368,14 +455,14 @@ export function useInventoryItem(state, itemId, now = Date.now()) {
         inventory: consumed.inventory,
       },
       success: true,
-      message: `Da kich hoat ${item.name}.`,
+      message: `Đã kích hoạt ${item.name}.`,
     };
   }
 
   return {
     state,
     success: false,
-    message: 'Vat pham nay chua co cong dung trong V1.',
+    message: 'Vật phẩm này chưa có công dụng trong bản hiện tại.',
   };
 }
 
@@ -396,10 +483,44 @@ function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function scaleDropRate(rate, multiplier) {
-  const next = parseRate(rate) * multiplier;
-  if (next < 1) return `${Math.max(0.1, Math.round(next * 10) / 10)}%`;
-  return `${Math.round(next)}%`;
+const DISCIPLINE_PROTECTION_ITEM_IDS = new Set([
+  'item_streak_freeze',
+  'item_rest_permit',
+  'item_death_pardon',
+]);
+
+const DROP_RATE_CAPS_BY_TIER = {
+  item_large_mana_potion: [0, 12, 13, 14, 15, 16],
+  item_large_hp_potion: [0, 10, 11, 12, 13, 14],
+  item_life_shield: [0, 8, 9, 10, 11, 12],
+  item_extend_order: [0, 0, 2, 2.4, 2.8, 3.2],
+  item_lucky_charm: [0, 0, 0, 0.7, 1, 1.3],
+  item_streak_freeze: [0, 0, 0.35, 0.55, 0.75, 1],
+  item_rest_permit: [0, 0, 0, 0, 0.12, 0.25],
+  item_death_pardon: [0, 0, 0, 0, 0.03, 0.08],
+  item_world_core: [0, 0, 0, 0, 0, 0.05],
+};
+
+function getDropRateCap(itemId, lootTier) {
+  const tier = clampNumber(nonNegativeInt(lootTier), 1, 5);
+  const caps = DROP_RATE_CAPS_BY_TIER[itemId];
+  if (!caps) return 8;
+  return caps[tier] ?? 0;
+}
+
+function formatDropRate(rate) {
+  const n = Math.max(0, Number(rate) || 0);
+  if (n <= 0) return '0%';
+  if (n < 0.1) return `${Math.round(n * 100) / 100}%`;
+  if (n < 1) return `${Math.round(n * 10) / 10}%`;
+  return `${Math.round(n)}%`;
+}
+
+function clampLootEntryRate(entry, lootTier) {
+  const itemId = String(entry?.itemId ?? entry?.id ?? '').trim();
+  const cap = getDropRateCap(itemId, lootTier);
+  const rawRate = parseRate(entry?.rate ?? entry?.dropRate);
+  return formatDropRate(Math.min(rawRate, cap));
 }
 
 export function calculatePlayerPower(profile) {
@@ -412,19 +533,19 @@ export function calculatePlayerPower(profile) {
   const sources = [
     {
       id: 'level',
-      label: 'Level nhan vat',
+      label: 'Level nhân vật',
       value: nonNegativeInt(profile?.level || 1),
       multiplier: 100,
     },
     {
       id: 'hp',
-      label: 'HP hien tai',
+      label: 'HP hiện tại',
       value: nonNegativeInt(profile?.hp),
       multiplier: 4,
     },
     {
       id: 'mana',
-      label: 'MP hien tai',
+      label: 'MP hiện tại',
       value: nonNegativeInt(profile?.mana),
       multiplier: 3,
     },
@@ -436,25 +557,25 @@ export function calculatePlayerPower(profile) {
     },
     {
       id: 'streak',
-      label: 'Streak',
+      label: 'Chuỗi',
       value: nonNegativeInt(profile?.streak),
       multiplier: 35,
     },
     {
       id: 'quests',
-      label: 'Tong quest da hoan thanh',
+      label: 'Tổng nhiệm vụ đã hoàn thành',
       value: nonNegativeInt(profile?.lifetimeQuestsCompleted),
       multiplier: 2,
     },
     {
       id: 'exercise',
-      label: 'Ngay the duc hoan hao',
+      label: 'Ngày thể dục hoàn hảo',
       value: nonNegativeInt(profile?.lifetimeExercisePerfectDays),
       multiplier: 25,
     },
     {
       id: 'overcome',
-      label: 'Quest vuot ban than da xong',
+      label: 'Quest vượt bản thân đã xong',
       value: nonNegativeInt(profile?.lifetimeOvercomeCompleted),
       multiplier: 20,
     },
@@ -472,16 +593,16 @@ export function calculatePlayerPower(profile) {
 
 export function getPowerRank(power) {
   const value = nonNegativeInt(power);
-  if (value >= 300000) return 'Sieu viet';
-  if (value >= 150000) return 'Chua te';
-  if (value >= 80000) return 'Than thoai';
-  if (value >= 40000) return 'Bat tu';
-  if (value >= 20000) return 'Huyen thoai';
-  if (value >= 10000) return 'Anh hung';
-  if (value >= 6000) return 'Hiep si';
-  if (value >= 3000) return 'Dung si';
-  if (value >= 1000) return 'Chien binh';
-  return 'Tap su';
+  if (value >= 300000) return 'Siêu việt';
+  if (value >= 150000) return 'Chúa tể';
+  if (value >= 80000) return 'Thần thoại';
+  if (value >= 40000) return 'Bất tử';
+  if (value >= 20000) return 'Huyền thoại';
+  if (value >= 10000) return 'Anh hùng';
+  if (value >= 6000) return 'Hiệp sĩ';
+  if (value >= 3000) return 'Dũng sĩ';
+  if (value >= 1000) return 'Chiến binh';
+  return 'Tập sự';
 }
 
 export function formatPower(value) {
@@ -497,7 +618,7 @@ export function createMockBossEvent(
     eventType: 'weekly',
     status: 'countdown',
     revealAt: now + Math.max(0, nonNegativeInt(durationMs)),
-    title: 'Boss Tuan sap xuat hien',
+    title: 'Boss Tuần sắp xuất hiện',
     hiddenLabel: '???',
   };
 }
@@ -521,19 +642,19 @@ export function createNextLocalBossEvent(now = Date.now()) {
   [
     {
       eventType: 'work',
-      title: 'Boss Cong Viec sap xuat hien',
+      title: 'Boss Công Việc sắp xuất hiện',
       hour: 10,
       minute: 0,
     },
     {
       eventType: 'fitness',
-      title: 'Boss The Duc sap xuat hien',
+      title: 'Boss Thể Dục sắp xuất hiện',
       hour: 16,
       minute: 30,
     },
     {
       eventType: 'discipline',
-      title: 'Boss Ky Luat sap xuat hien',
+      title: 'Boss Kỷ Luật sắp xuất hiện',
       hour: 20,
       minute: 0,
     },
@@ -557,7 +678,7 @@ export function createNextLocalBossEvent(now = Date.now()) {
   }
   candidates.push({
     eventType: 'weekly',
-    title: 'Boss Tuan sap xuat hien',
+    title: 'Boss Tuần sắp xuất hiện',
     revealAt: weeklyAt.getTime(),
   });
 
@@ -582,8 +703,13 @@ export function createScheduledBossState(now = Date.now()) {
     tasks: [],
     rules: null,
     lootTable: null,
+    taskGenerator: null,
     results: [],
     lastSeenBossTemplateIds: [],
+    unlockedAchievementIds: [],
+    lastUnlockedAchievementIds: [],
+    notifiedHunterRank: '',
+    lastHunterRankUnlockedAt: 0,
   };
 }
 
@@ -612,128 +738,134 @@ export function finishCurrentBossAndScheduleNext(bossState, now = Date.now()) {
     tasks: [],
     rules: null,
     lootTable: null,
+    taskGenerator: null,
     results: Array.isArray(base.results)
       ? base.results.filter((result) => result && typeof result === 'object')
       : [],
     lastSeenBossTemplateIds,
+    unlockedAchievementIds: normalizeStringList(base.unlockedAchievementIds),
+    lastUnlockedAchievementIds: normalizeStringList(base.lastUnlockedAchievementIds, 10),
+    lastAchievementUnlockedAt: nonNegativeInt(base.lastAchievementUnlockedAt),
+    notifiedHunterRank: String(base.notifiedHunterRank ?? ''),
+    lastHunterRankUnlockedAt: nonNegativeInt(base.lastHunterRankUnlockedAt),
   };
 }
 
 const BOSS_TEMPLATE_BY_EVENT_TYPE = {
   work: {
     id: 'boss_procrastination_ghost',
-    name: 'Bong Ma Tri Hoan',
-    typeLabel: 'Boss Cong Viec',
-    themeLabel: 'Tri hoan cong viec',
-    difficulty: 'Kho',
+    name: 'Bóng Ma Trì Hoãn',
+    typeLabel: 'Boss Công Việc',
+    themeLabel: 'Trì hoãn công việc',
+    difficulty: 'Khó',
     powerRange: [1.08, 1.22],
     requiredRange: [0.62, 0.72],
     hpRange: [3.0, 3.6],
     durationHoursRange: [8, 12],
     lootTier: 1,
     variants: [
-      'Bong Ma Tri Hoan',
-      'Ke An Cap Deadline',
-      'Phap Su Sao Lang',
+      'Bóng Ma Trì Hoãn',
+      'Kẻ Ăn Cắp Hạn Chót',
+      'Pháp Sư Sao Lãng',
     ],
-    skillName: 'Hoi Mau Tri Hoan',
-    skillDescription: 'Tre deadline se lam boss hoi HP trong ban that.',
+    skillName: 'Hồi Máu Trì Hoãn',
+    skillDescription: 'Trễ hạn sẽ làm boss hồi máu trong bản thật.',
   },
   fitness: {
     id: 'boss_lazy_demon',
-    name: 'Quy Luoi Bieng',
-    typeLabel: 'Boss The Duc',
-    themeLabel: 'Vuot luoi van dong',
-    difficulty: 'Kho',
+    name: 'Quỷ Lười Biếng',
+    typeLabel: 'Boss Thể Dục',
+    themeLabel: 'Vượt lười vận động',
+    difficulty: 'Khó',
     powerRange: [1.12, 1.28],
     requiredRange: [0.62, 0.75],
     hpRange: [3.2, 3.9],
     durationHoursRange: [4, 7],
     lootTier: 1,
     variants: [
-      'Quy Luoi Bieng',
-      'Cuong Thu Than Xac',
-      'Ke Nuot Suc Ben',
+      'Quỷ Lười Biếng',
+      'Cuồng Thú Thân Xác',
+      'Kẻ Nuốt Sức Bền',
     ],
-    skillName: 'Than Xac Nang Ne',
-    skillDescription: 'Nhiem vu qua de se gay it damage hon trong ban that.',
+    skillName: 'Thân Xác Nặng Nề',
+    skillDescription: 'Nhiệm vụ quá dễ sẽ gây ít sát thương hơn trong bản thật.',
   },
   discipline: {
     id: 'boss_chain_breaker',
-    name: 'Ke Pha Chuoi',
-    typeLabel: 'Boss Ky Luat',
-    themeLabel: 'Bao ve streak',
-    difficulty: 'Rat kho',
+    name: 'Kẻ Phá Chuỗi',
+    typeLabel: 'Boss Kỷ Luật',
+    themeLabel: 'Bảo vệ chuỗi',
+    difficulty: 'Rất khó',
     powerRange: [1.22, 1.42],
     requiredRange: [0.68, 0.82],
     hpRange: [3.7, 4.5],
     durationHoursRange: [3, 5],
     lootTier: 2,
     variants: [
-      'Ke Pha Chuoi',
-      'Quan Giam Nguc Thoi Quen',
-      'Sat Thu Ky Luat',
+      'Kẻ Phá Chuỗi',
+      'Quản Giám Ngục Thói Quen',
+      'Sát Thủ Kỷ Luật',
     ],
-    skillName: 'Xich Gay',
+    skillName: 'Xích Gãy',
     skillDescription: 'Fail nhiem vu ky luat se tang giap boss trong ban that.',
   },
   weekly: {
     id: 'boss_weekend_gate_knight',
-    name: 'Ky Si Cuoi Tuan',
-    typeLabel: 'Boss Tuan',
-    themeLabel: 'Ky luat tong hop',
-    difficulty: 'Rat kho',
+    name: 'Kỵ Sĩ Cuối Tuần',
+    typeLabel: 'Boss Tuần',
+    themeLabel: 'Kỷ luật tổng hợp',
+    difficulty: 'Rất khó',
     powerRange: [1.25, 1.55],
     requiredRange: [0.65, 0.82],
     hpRange: [4.0, 5.4],
     durationHoursRange: [18, 28],
     lootTier: 3,
     variants: [
-      'Ky Si Cuoi Tuan',
-      'Nguoi Gac Cong Thu Bay',
-      'Lanh Chua Ngay Nghi',
+      'Kỵ Sĩ Cuối Tuần',
+      'Người Gác Cổng Thứ Bảy',
+      'Lãnh Chúa Ngày Nghỉ',
     ],
-    skillName: 'Giap Cuoi Tuan',
+    skillName: 'Giáp Cuối Tuần',
     skillDescription:
       'Can hoan thanh it nhat 2 nhom nhiem vu khac nhau de pha giap.',
   },
   elite: {
     id: 'boss_elite_shadow_hunter',
-    name: 'Tho San Bong Toi',
+    name: 'Thợ Săn Bóng Tối',
     typeLabel: 'Boss Tinh Anh',
-    themeLabel: 'Thu thach gioi han',
-    difficulty: 'Ac mong',
+    themeLabel: 'Thử thách giới hạn',
+    difficulty: 'Ác mộng',
     powerRange: [1.55, 1.9],
     requiredRange: [0.78, 0.95],
     hpRange: [5.0, 6.5],
     durationHoursRange: [4, 8],
     lootTier: 4,
     variants: [
-      'Tho San Bong Toi',
-      'Kiem Si Hoang Hon',
-      'Ke Truy Sat Manh Nhat',
+      'Thợ Săn Bóng Tối',
+      'Kiếm Sĩ Hoàng Hôn',
+      'Kẻ Truy Sát Mạnh Nhất',
     ],
-    skillName: 'San Moi Yeu Diem',
-    skillDescription: 'Nhiem vu bo do se lam cac nhiem vu sau kho hon.',
+    skillName: 'Săn Mồi Yếu Điểm',
+    skillDescription: 'Nhiệm vụ bỏ dở sẽ làm các nhiệm vụ sau khó hơn.',
   },
   world: {
     id: 'boss_world_abyss_king',
-    name: 'Vuong Gia Vuc Sau',
-    typeLabel: 'Boss The Gioi',
-    themeLabel: 'Dot pha thuc luc',
-    difficulty: 'The gioi',
+    name: 'Vương Giả Vực Sâu',
+    typeLabel: 'Boss Thế Giới',
+    themeLabel: 'Đột phá thực lực',
+    difficulty: 'Thế giới',
     powerRange: [2.2, 3.2],
     requiredRange: [0.9, 1.12],
     hpRange: [7.5, 10],
     durationHoursRange: [12, 24],
     lootTier: 5,
     variants: [
-      'Vuong Gia Vuc Sau',
-      'Long De Bong Toi',
-      'Quan Vuong Cong Doan',
+      'Vương Giả Vực Sâu',
+      'Long Đế Bóng Tối',
+      'Quân Vương Cổng Đoạn',
     ],
-    skillName: 'Ap Luc The Gioi',
-    skillDescription: 'Chi nguoi du luc chien moi duoc tham chien.',
+    skillName: 'Áp Lực Thế Giới',
+    skillDescription: 'Chỉ người đủ lực chiến mới được tham chiến.',
   },
 };
 
@@ -792,7 +924,7 @@ export function createMockRevealedBoss(
     typeLabel: template.typeLabel,
     themeLabel: template.themeLabel,
     imageKey: template.id,
-    generatedBy: 'local_boss_generator_v1',
+      generatedBy: 'local_boss_generator_v1',
     generatedTier,
     level,
     lootTier: template.lootTier ?? 1,
@@ -826,8 +958,13 @@ function createPlayableMockBossState(playerPower, eventType = 'weekly') {
     tasks: createMockBossTasks(boss),
     rules: createMockBossRules(boss),
     lootTable: createMockLootTable(boss),
+    taskGenerator: null,
     results: [],
     lastSeenBossTemplateIds: [boss.templateId],
+    unlockedAchievementIds: [],
+    lastUnlockedAchievementIds: [],
+    notifiedHunterRank: '',
+    lastHunterRankUnlockedAt: 0,
   };
 }
 
@@ -841,8 +978,13 @@ export function createTestCountdownBossState(
     tasks: [],
     rules: null,
     lootTable: null,
+    taskGenerator: null,
     results: [],
     lastSeenBossTemplateIds: [],
+    unlockedAchievementIds: [],
+    lastUnlockedAchievementIds: [],
+    notifiedHunterRank: '',
+    lastHunterRankUnlockedAt: 0,
   };
 }
 
@@ -857,8 +999,13 @@ export function createEmptyBossState() {
     tasks: [],
     rules: null,
     lootTable: null,
+    taskGenerator: null,
     results: [],
     lastSeenBossTemplateIds: [],
+    unlockedAchievementIds: [],
+    lastUnlockedAchievementIds: [],
+    notifiedHunterRank: '',
+    lastHunterRankUnlockedAt: 0,
   };
 }
 
@@ -873,10 +1020,28 @@ function ensurePlayableBossState(bossState, playerPower) {
           : createMockBossTasks(bossState.currentBoss),
       rules: bossState.rules ?? createMockBossRules(bossState.currentBoss),
       lootTable: bossState.lootTable ?? createMockLootTable(),
+      taskGenerator:
+        bossState.taskGenerator && typeof bossState.taskGenerator === 'object'
+          ? bossState.taskGenerator
+          : null,
       results: Array.isArray(bossState.results) ? bossState.results : [],
       lastSeenBossTemplateIds: Array.isArray(bossState.lastSeenBossTemplateIds)
         ? bossState.lastSeenBossTemplateIds
         : [],
+      unlockedAchievementIds: normalizeStringList(
+        bossState.unlockedAchievementIds
+      ),
+      lastUnlockedAchievementIds: normalizeStringList(
+        bossState.lastUnlockedAchievementIds,
+        10
+      ),
+      lastAchievementUnlockedAt: nonNegativeInt(
+        bossState.lastAchievementUnlockedAt
+      ),
+      notifiedHunterRank: String(bossState.notifiedHunterRank ?? ''),
+      lastHunterRankUnlockedAt: nonNegativeInt(
+        bossState.lastHunterRankUnlockedAt
+      ),
     };
   }
   return createPlayableMockBossState(playerPower);
@@ -894,9 +1059,10 @@ export function acceptBossTask(bossState, taskId, playerPower, now = Date.now())
   if (!hasBossParticipationAccess(base, playerPower)) {
     return base;
   }
+  const checked = applyBossTaskDeadlines(base, playerPower, now);
   return {
-    ...base,
-    tasks: base.tasks.map((task) => {
+    ...checked,
+    tasks: checked.tasks.map((task) => {
       if (task.id !== taskId || task.status !== 'Available') return task;
       return {
         ...task,
@@ -911,7 +1077,8 @@ export function completeBossTask(
   bossState,
   taskId,
   playerPower,
-  now = Date.now()
+  now = Date.now(),
+  proofResult = null
 ) {
   const base = ensurePlayableBossState(bossState, playerPower);
   if (['defeated', 'expired'].includes(String(base.currentBoss?.status))) {
@@ -924,30 +1091,48 @@ export function completeBossTask(
   if (!hasBossParticipationAccess(base, playerPower)) {
     return base;
   }
-  const task = base.tasks.find((row) => row.id === taskId);
-  if (!task || task.status === 'Completed' || task.status === 'Locked') {
-    return base;
+  const checked = applyBossTaskDeadlines(base, playerPower, now);
+  const task = checked.tasks.find((row) => row.id === taskId);
+  if (
+    !task ||
+    task.status === 'Completed' ||
+    task.status === 'Locked' ||
+    task.status === 'Failed'
+  ) {
+    return checked;
   }
 
-  const currentBoss = normalizeBossForDisplay(base.currentBoss, playerPower);
+  const currentBoss = normalizeBossForDisplay(checked.currentBoss, playerPower);
   const damage = nonNegativeInt(task.damage);
   const nextHp = Math.max(0, currentBoss.currentHp - damage);
   const defeated = nextHp <= 0;
 
   return {
-    ...base,
+    ...checked,
     currentBoss: {
-      ...base.currentBoss,
+      ...checked.currentBoss,
       currentHp: nextHp,
-      status: defeated ? 'defeated' : base.currentBoss.status ?? 'active',
-      defeatedAt: defeated ? now : base.currentBoss.defeatedAt,
+      status: defeated ? 'defeated' : checked.currentBoss.status ?? 'active',
+      defeatedAt: defeated ? now : checked.currentBoss.defeatedAt,
     },
-    tasks: base.tasks.map((row) => {
+    tasks: checked.tasks.map((row) => {
       if (row.id !== taskId) return row;
       return {
         ...row,
         status: 'Completed',
         completedAt: now,
+        submittedProof:
+          proofResult?.proofText ?? row.submittedProof ?? '',
+        proofScore:
+          proofResult && proofResult.score != null
+            ? nonNegativeInt(proofResult.score)
+            : row.proofScore,
+        proofFeedback:
+          proofResult?.feedback ?? row.proofFeedback ?? '',
+        proofCheckedBy:
+          proofResult?.checkedBy ?? row.proofCheckedBy ?? '',
+        proofCheckedAt:
+          proofResult ? now : row.proofCheckedAt ?? null,
       };
     }),
   };
@@ -957,18 +1142,39 @@ function rollOneLootEntry(entries) {
   const weighted = entries
     .map((entry) => ({
       ...entry,
-      weight: parseRate(entry.rate ?? entry.dropRate),
+      chance: parseRate(entry.rate ?? entry.dropRate),
     }))
-    .filter((entry) => entry.weight > 0);
-  const total = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+    .filter((entry) => entry.chance > 0);
+  const total = weighted.reduce((sum, entry) => sum + entry.chance, 0);
   if (total <= 0) return null;
 
-  let cursor = Math.random() * total;
+  let cursor = Math.random() * 100;
+  if (cursor >= Math.min(100, total)) return null;
+
   for (const entry of weighted) {
-    cursor -= entry.weight;
+    cursor -= entry.chance;
     if (cursor <= 0) return entry;
   }
   return weighted[weighted.length - 1] ?? null;
+}
+
+function applyLootDropLimits(received) {
+  const rows = Array.isArray(received) ? received : [];
+  const limitedItemIds = new Set([
+    'item_streak_freeze',
+    'item_rest_permit',
+    'item_death_pardon',
+    'item_lucky_charm',
+    'item_world_core',
+  ]);
+  const seen = new Set();
+  return rows.filter((item) => {
+    const itemId = String(item?.itemId ?? item?.id ?? '').trim();
+    if (!limitedItemIds.has(itemId)) return true;
+    if (seen.has(itemId)) return false;
+    seen.add(itemId);
+    return true;
+  });
 }
 
 export function rollBossLoot(lootTable, rollCount) {
@@ -989,7 +1195,22 @@ export function rollBossLoot(lootTable, rollCount) {
       quantity: 1,
     });
   }
-  return received;
+  return applyLootDropLimits(received);
+}
+
+function createBossResultSnapshot(boss) {
+  const normalizedBoss = boss && typeof boss === 'object' ? boss : {};
+  return {
+    bossName: String(normalizedBoss.name ?? titleFromId(normalizedBoss.id)),
+    bossTypeLabel: String(normalizedBoss.typeLabel ?? 'Boss'),
+    bossThemeLabel: String(normalizedBoss.themeLabel ?? 'Không rõ'),
+    bossDifficulty: String(normalizedBoss.difficulty ?? 'Không rõ'),
+    bossPower: nonNegativeInt(normalizedBoss.bossPower),
+    bossLevel: Math.max(1, nonNegativeInt(normalizedBoss.level)),
+    bossTier: String(normalizedBoss.generatedTier ?? 'Standard'),
+    lootTier: Math.max(1, nonNegativeInt(normalizedBoss.lootTier)),
+    imageKey: normalizedBoss.imageKey ?? normalizedBoss.templateId ?? normalizedBoss.id,
+  };
 }
 
 export function completeBossTaskAndRollRewards(
@@ -997,10 +1218,17 @@ export function completeBossTaskAndRollRewards(
   inventory,
   taskId,
   playerPower,
-  now = Date.now()
+  now = Date.now(),
+  proofResult = null
 ) {
   const before = ensurePlayableBossState(bossState, playerPower);
-  const after = completeBossTask(before, taskId, playerPower, now);
+  const after = completeBossTask(
+    before,
+    taskId,
+    playerPower,
+    now,
+    proofResult
+  );
   const boss = normalizeBossForDisplay(after.currentBoss, playerPower);
   const justDefeated =
     boss.currentHp <= 0 && before.currentBoss?.status !== 'defeated';
@@ -1020,18 +1248,18 @@ export function completeBossTaskAndRollRewards(
   );
   const finisherDone = completedTasks.some(
     (task) =>
-      String(task.difficulty).toLowerCase() === 'ket lieu' ||
-      String(task.title).toLowerCase().includes('ket lieu')
+      String(task.difficulty).toLowerCase() === 'kết liễu' ||
+      String(task.title).toLowerCase().includes('kết liễu')
   );
   const lootTable = after.lootTable ?? createMockLootTable();
   const baseRolls = Math.max(1, nonNegativeInt(lootTable.maxRolls || 3));
-  const rollsEarned = baseRolls + 1 + (finisherDone ? 1 : 0);
+  const boost = consumeInventoryEffect(inventory, 'loot_boost', now);
+  const bonusRolls = boost.effect ? 1 : 0;
+  const rollsEarned = baseRolls + 1 + (finisherDone ? 1 : 0) + bonusRolls;
   const lootReceived = rollBossLoot(lootTable, rollsEarned);
   const nextInventory = lootReceived.reduce(
     (acc, item) => addInventoryItem(acc, item, item.quantity),
-    inventory && typeof inventory === 'object'
-      ? inventory
-      : { items: {}, activeEffects: [] }
+    boost.inventory
   );
   const damageDealt = Math.max(0, boss.maxHp - boss.currentHp);
   const result = {
@@ -1043,8 +1271,11 @@ export function completeBossTaskAndRollRewards(
     tasksCompleted: completedTasks.length,
     tasksFailed: after.tasks.filter((task) => task.status === 'Failed').length,
     rollsEarned,
+    bonusRolls,
+    consumedEffects: boost.effect ? [boost.effect] : [],
     lootReceived,
     createdAt: now,
+    ...createBossResultSnapshot(boss),
   };
 
   return {
@@ -1087,7 +1318,7 @@ export function expireCurrentBoss(
       ...task,
       status: 'Failed',
       failedAt: now,
-      failReason: 'Boss expired',
+      failReason: 'Boss đã hết giờ',
     };
   });
   const completedTasks = nextTasks.filter((task) => task?.status === 'Completed');
@@ -1112,7 +1343,8 @@ export function expireCurrentBoss(
     rollsEarned: 0,
     lootReceived: [],
     createdAt: now,
-    reason: 'Boss het gio truoc khi bi ha.',
+    reason: 'Boss hết giờ trước khi bị hạ.',
+    ...createBossResultSnapshot(boss),
   };
 
   return {
@@ -1125,6 +1357,375 @@ export function expireCurrentBoss(
     tasks: nextTasks,
     results: alreadyClosed ? results : [...results, expiredResult],
   };
+}
+
+export function normalizeBossResultsForDisplay(rawResults, maxRows = 30) {
+  const rows = Array.isArray(rawResults) ? rawResults : [];
+  const normalized = rows
+    .filter((result) => result && typeof result === 'object')
+    .map((result, index) => {
+      const lootReceived = Array.isArray(result.lootReceived)
+        ? result.lootReceived.filter((item) => item && typeof item === 'object')
+        : [];
+      return {
+        id: String(result.id ?? `boss_result_${index}`),
+        bossInstanceId: String(result.bossInstanceId ?? ''),
+        bossName: String(
+          result.bossName ??
+            result.bossSnapshot?.name ??
+            result.bossInstanceId ??
+            'Boss không rõ'
+        ),
+        bossTypeLabel: String(
+          result.bossTypeLabel ?? result.bossSnapshot?.typeLabel ?? 'Boss'
+        ),
+        bossThemeLabel: String(
+          result.bossThemeLabel ?? result.bossSnapshot?.themeLabel ?? 'Không rõ'
+        ),
+        bossDifficulty: String(
+          result.bossDifficulty ?? result.bossSnapshot?.difficulty ?? 'Không rõ'
+        ),
+        bossPower: nonNegativeInt(
+          result.bossPower ?? result.bossSnapshot?.bossPower
+        ),
+        bossLevel: Math.max(
+          1,
+          nonNegativeInt(result.bossLevel ?? result.bossSnapshot?.level)
+        ),
+        bossTier: String(
+          result.bossTier ?? result.bossSnapshot?.generatedTier ?? 'Standard'
+        ),
+        lootTier: Math.max(
+          1,
+          nonNegativeInt(result.lootTier ?? result.bossSnapshot?.lootTier)
+        ),
+        imageKey: String(
+          result.imageKey ??
+            result.bossSnapshot?.imageKey ??
+            result.bossSnapshot?.templateId ??
+            result.bossInstanceId ??
+            ''
+        ),
+        outcome: String(result.outcome ?? 'unknown'),
+        createdAt: nonNegativeInt(result.createdAt),
+        damageDealt: nonNegativeInt(result.damageDealt),
+        damagePercent: nonNegativeInt(result.damagePercent),
+        tasksCompleted: nonNegativeInt(result.tasksCompleted),
+        tasksFailed: nonNegativeInt(result.tasksFailed),
+        rollsEarned: nonNegativeInt(result.rollsEarned),
+        bonusRolls: nonNegativeInt(result.bonusRolls),
+        lootReceived,
+        lootCount: lootReceived.reduce(
+          (sum, item) => sum + Math.max(1, nonNegativeInt(item.quantity ?? 1)),
+          0
+        ),
+        reason: String(result.reason ?? ''),
+      };
+    })
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  if (maxRows === null) return normalized;
+  return normalized.slice(0, Math.max(0, nonNegativeInt(maxRows)));
+}
+
+export function summarizeBossResults(rawResults) {
+  const results = normalizeBossResultsForDisplay(rawResults, null);
+  const total = results.length;
+  const victories = results.filter((result) => result.outcome === 'defeated')
+    .length;
+  const expired = results.filter((result) => result.outcome === 'expired').length;
+  const totalLoot = results.reduce((sum, result) => sum + result.lootCount, 0);
+  const totalRolls = results.reduce((sum, result) => sum + result.rollsEarned, 0);
+  const totalDamage = results.reduce(
+    (sum, result) => sum + result.damageDealt,
+    0
+  );
+  const bestDamageResult = results.reduce(
+    (best, result) =>
+      !best || result.damagePercent > best.damagePercent ? result : best,
+    null
+  );
+  const strongestBoss = results.reduce(
+    (best, result) => (!best || result.bossPower > best.bossPower ? result : best),
+    null
+  );
+  const bestLootResult = results.reduce(
+    (best, result) => (!best || result.lootCount > best.lootCount ? result : best),
+    null
+  );
+
+  return {
+    total,
+    victories,
+    expired,
+    winRate: total > 0 ? Math.round((victories / total) * 100) : 0,
+    totalLoot,
+    totalRolls,
+    totalDamage,
+    bestDamagePercent: bestDamageResult?.damagePercent ?? 0,
+    bestDamageBossName: bestDamageResult?.bossName ?? 'Chưa có',
+    strongestBossName: strongestBoss?.bossName ?? 'Chưa có',
+    strongestBossPower: strongestBoss?.bossPower ?? 0,
+    bestLootBossName: bestLootResult?.bossName ?? 'Chưa có',
+    bestLootCount: bestLootResult?.lootCount ?? 0,
+  };
+}
+
+export function summarizeBossCodex(rawResults) {
+  const history = normalizeBossResultsForDisplay(rawResults, null);
+  const grouped = new Map();
+
+  for (const result of history) {
+    const key = result.imageKey || `${result.bossTypeLabel}_${result.bossName}`;
+    const existing = grouped.get(key) ?? {
+      id: key,
+      imageKey: result.imageKey,
+      bossName: result.bossName,
+      bossTypeLabel: result.bossTypeLabel,
+      bossThemeLabel: result.bossThemeLabel,
+      encounters: 0,
+      victories: 0,
+      expired: 0,
+      totalLoot: 0,
+      bestDamagePercent: 0,
+      strongestPower: 0,
+      highestLootTier: 0,
+      lastSeenAt: 0,
+    };
+
+    existing.encounters += 1;
+    existing.victories += result.outcome === 'defeated' ? 1 : 0;
+    existing.expired += result.outcome === 'expired' ? 1 : 0;
+    existing.totalLoot += result.lootCount;
+    existing.bestDamagePercent = Math.max(
+      existing.bestDamagePercent,
+      result.damagePercent
+    );
+    existing.strongestPower = Math.max(existing.strongestPower, result.bossPower);
+    existing.highestLootTier = Math.max(existing.highestLootTier, result.lootTier);
+    existing.lastSeenAt = Math.max(existing.lastSeenAt, result.createdAt);
+    grouped.set(key, existing);
+  }
+
+  return [...grouped.values()].sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+}
+
+export function summarizeBossLootCollection(rawResults) {
+  const history = normalizeBossResultsForDisplay(rawResults, null);
+  const grouped = new Map();
+
+  for (const result of history) {
+    for (const item of result.lootReceived) {
+      const id = String(item.itemId ?? item.id ?? item.name ?? '').trim();
+      if (!id) continue;
+      const quantity = Math.max(1, nonNegativeInt(item.quantity ?? 1));
+      const existing = grouped.get(id) ?? {
+        id,
+        itemId: id,
+        name: String(item.name ?? titleFromId(id)),
+        rarity: String(item.rarity ?? getItemDefinition(id).rarity),
+        iconKey: item.iconKey ?? id,
+        scope: String(item.scope ?? getItemDefinition(id).scope),
+        useType: String(item.useType ?? getItemDefinition(id).useType),
+        description: String(item.description ?? getItemDefinition(id).description),
+        totalQuantity: 0,
+        dropCount: 0,
+        sourceBossNames: [],
+        lastDroppedAt: 0,
+      };
+
+      existing.totalQuantity += quantity;
+      existing.dropCount += 1;
+      existing.lastDroppedAt = Math.max(existing.lastDroppedAt, result.createdAt);
+      if (!existing.sourceBossNames.includes(result.bossName)) {
+        existing.sourceBossNames.push(result.bossName);
+      }
+      grouped.set(id, existing);
+    }
+  }
+
+  const rarityOrder = {
+    Mythic: 5,
+    Legendary: 4,
+    Epic: 3,
+    Rare: 2,
+    Common: 1,
+  };
+
+  return [...grouped.values()].sort((a, b) => {
+    const rarityDiff = (rarityOrder[b.rarity] ?? 0) - (rarityOrder[a.rarity] ?? 0);
+    if (rarityDiff !== 0) return rarityDiff;
+    if (b.totalQuantity !== a.totalQuantity) return b.totalQuantity - a.totalQuantity;
+    return b.lastDroppedAt - a.lastDroppedAt;
+  });
+}
+
+const BOSS_HUNTER_RANKS = [
+  { rank: 'E', title: 'Tập Sự Cổng', minScore: 0 },
+  { rank: 'D', title: 'Người Canh Cổng', minScore: 1500 },
+  { rank: 'C', title: 'Thợ Săn Boss', minScore: 5000 },
+  { rank: 'B', title: 'Người Phá Giáp', minScore: 12000 },
+  { rank: 'A', title: 'Sát Thủ Cổng Đen', minScore: 25000 },
+  { rank: 'S', title: 'Kẻ Kết Liễu Vực Sâu', minScore: 50000 },
+  { rank: 'SS', title: 'Chúa Tể Cổng Boss', minScore: 100000 },
+  { rank: 'SSS', title: 'Kẻ Đứng Trên Thế Giới', minScore: 200000 },
+];
+
+export function getBossHunterRank(rawResults) {
+  const stats = summarizeBossResults(rawResults);
+  const lootCollection = summarizeBossLootCollection(rawResults);
+  const rarityScore = lootCollection.reduce((sum, item) => {
+    const weight = {
+      Rare: 120,
+      Epic: 420,
+      Legendary: 1200,
+      Mythic: 3000,
+    }[item.rarity] ?? 40;
+    return sum + weight * Math.max(1, nonNegativeInt(item.totalQuantity));
+  }, 0);
+  const score = Math.round(
+    stats.victories * 1200 +
+      stats.totalRolls * 45 +
+      stats.totalLoot * 140 +
+      stats.bestDamagePercent * 20 +
+      stats.strongestBossPower * 0.04 +
+      rarityScore
+  );
+  const currentIndex = BOSS_HUNTER_RANKS.reduce(
+    (bestIndex, rank, index) => (score >= rank.minScore ? index : bestIndex),
+    0
+  );
+  const current = BOSS_HUNTER_RANKS[currentIndex];
+  const next = BOSS_HUNTER_RANKS[currentIndex + 1] ?? null;
+  const rankSpan = next ? next.minScore - current.minScore : 1;
+  const progressScore = next ? score - current.minScore : rankSpan;
+
+  return {
+    score,
+    rank: current.rank,
+    title: current.title,
+    nextRank: next?.rank ?? 'MAX',
+    nextTitle: next?.title ?? 'Đã đạt đỉnh hiện tại',
+    nextScore: next?.minScore ?? score,
+    pointsToNext: next ? Math.max(0, next.minScore - score) : 0,
+    progressPercent: next
+      ? Math.min(100, Math.round((progressScore / rankSpan) * 100))
+      : 100,
+  };
+}
+
+const BOSS_ACHIEVEMENT_DEFS = [
+  {
+    id: 'boss_first_clear',
+    title: 'Kẻ Diệt Boss',
+    description: 'Hạ gục boss đầu tiên.',
+    target: 1,
+    getCurrent: ({ stats }) => stats.victories,
+  },
+  {
+    id: 'boss_hunter_5',
+    title: 'Thợ Săn Cổng',
+    description: 'Chiến thắng 5 trận boss.',
+    target: 5,
+    getCurrent: ({ stats }) => stats.victories,
+  },
+  {
+    id: 'boss_hunter_20',
+    title: 'Kẻ Mở Cổng Chuyên Nghiệp',
+    description: 'Chiến thắng 20 trận boss.',
+    target: 20,
+    getCurrent: ({ stats }) => stats.victories,
+  },
+  {
+    id: 'boss_perfect_clear',
+    title: 'Kết Liễu Hoàn Hảo',
+    description: 'Thắng 1 trận boss với 100% sát thương và không thất bại nhiệm vụ.',
+    target: 1,
+    getCurrent: ({ perfectWins }) => perfectWins,
+  },
+  {
+    id: 'boss_elite_clear',
+    title: 'Sát Thủ Tinh Anh',
+    description: 'Hạ 3 boss Tinh Anh hoặc boss Thế Giới.',
+    target: 3,
+    getCurrent: ({ eliteWins }) => eliteWins,
+  },
+  {
+    id: 'boss_world_clear',
+    title: 'Người Đứng Trước Thế Giới',
+    description: 'Hạ 1 boss Thế Giới.',
+    target: 1,
+    getCurrent: ({ worldWins }) => worldWins,
+  },
+  {
+    id: 'boss_loot_10',
+    title: 'Người Gom Chiến Lợi Phẩm',
+    description: 'Nhận tổng cộng 10 vật phẩm từ boss.',
+    target: 10,
+    getCurrent: ({ stats }) => stats.totalLoot,
+  },
+  {
+    id: 'boss_rare_drop',
+    title: 'Vận May Hiếm',
+    description: 'Nhận 1 vật phẩm Sử thi, Huyền thoại hoặc Thần thoại từ boss.',
+    target: 1,
+    getCurrent: ({ rareLootCount }) => rareLootCount,
+  },
+  {
+    id: 'boss_power_50000',
+    title: 'Vượt Ngưỡng 50K',
+    description: 'Từng tham chiến boss có lực chiến từ 50,000 trở lên.',
+    target: 50000,
+    getCurrent: ({ stats }) => stats.strongestBossPower,
+  },
+];
+
+export function getBossAchievementProgress(rawResults) {
+  const history = normalizeBossResultsForDisplay(rawResults, null);
+  const stats = summarizeBossResults(rawResults);
+  const defeated = history.filter((result) => result.outcome === 'defeated');
+  const typeText = (result) =>
+    `${result.bossTypeLabel} ${result.bossThemeLabel}`.toLowerCase();
+  const worldWins = defeated.filter((result) =>
+    typeText(result).includes('thế giới')
+  ).length;
+  const eliteWins = defeated.filter((result) => {
+    const text = typeText(result);
+    return text.includes('tinh anh') || text.includes('thế giới');
+  }).length;
+  const perfectWins = defeated.filter(
+    (result) => result.damagePercent >= 100 && result.tasksFailed === 0
+  ).length;
+  const rareLootCount = history.reduce(
+    (sum, result) =>
+      sum +
+      result.lootReceived.filter((item) =>
+        ['Epic', 'Legendary', 'Mythic'].includes(String(item.rarity))
+      ).length,
+    0
+  );
+  const context = {
+    history,
+    stats,
+    defeated,
+    worldWins,
+    eliteWins,
+    perfectWins,
+    rareLootCount,
+  };
+
+  return BOSS_ACHIEVEMENT_DEFS.map((def) => {
+    const current = Math.max(0, nonNegativeInt(def.getCurrent(context)));
+    const target = Math.max(1, nonNegativeInt(def.target));
+    const unlocked = current >= target;
+    return {
+      ...def,
+      current,
+      target,
+      unlocked,
+      progressPercent: Math.min(100, Math.round((current / target) * 100)),
+    };
+  });
 }
 
 export function normalizeBossForDisplay(rawBoss, playerPower) {
@@ -1145,9 +1746,9 @@ export function normalizeBossForDisplay(rawBoss, playerPower) {
     templateId: String(rawBoss.templateId ?? rawBoss.id ?? 'state_boss'),
     name: String(rawBoss.name ?? titleFromId(rawBoss.templateId ?? rawBoss.id)),
     typeLabel: String(rawBoss.typeLabel ?? rawBoss.type ?? 'Boss'),
-    themeLabel: String(rawBoss.themeLabel ?? rawBoss.theme ?? 'Unknown'),
+    themeLabel: String(rawBoss.themeLabel ?? rawBoss.theme ?? 'Không rõ'),
     imageKey: rawBoss.imageKey ?? rawBoss.templateId ?? rawBoss.id,
-    generatedBy: String(rawBoss.generatedBy ?? 'manual'),
+    generatedBy: String(rawBoss.generatedBy ?? 'local'),
     generatedTier: String(rawBoss.generatedTier ?? rawBoss.tier ?? 'Standard'),
     level: Math.max(1, nonNegativeInt(rawBoss.level ?? Math.sqrt(bossPower) / 2)),
     lootTier: Math.max(1, nonNegativeInt(rawBoss.lootTier ?? 1)),
@@ -1180,17 +1781,19 @@ export function normalizeBossForDisplay(rawBoss, playerPower) {
     maxHp,
     currentHp,
     status: String(rawBoss.status ?? (currentHp <= 0 ? 'defeated' : 'active')),
-    difficulty: String(rawBoss.difficulty ?? 'Unknown'),
+    difficulty: String(rawBoss.difficulty ?? 'Không rõ'),
     endsAt:
       typeof rawBoss.endsAt === 'number'
         ? rawBoss.endsAt
         : Date.now() + 24 * 60 * 60 * 1000,
     specialSkill: {
-      name: String(rawBoss.specialSkill?.name ?? 'Unknown skill'),
+      name: String(rawBoss.specialSkill?.name ?? 'Kỹ năng không rõ'),
       description: String(
-        rawBoss.specialSkill?.description ?? 'Boss skill chua duoc mo ta.'
+        rawBoss.specialSkill?.description ?? 'Kỹ năng boss chưa được mô tả.'
       ),
     },
+    lore: String(rawBoss.lore ?? ''),
+    visualPrompt: String(rawBoss.visualPrompt ?? ''),
   };
 }
 
@@ -1199,39 +1802,39 @@ export function getBossParticipationState(playerPower, boss) {
   if (!boss) {
     return {
       tone: 'neutral',
-      label: 'Chua co boss',
-      description: 'Cong boss chua reveal.',
+      label: 'Chưa có boss',
+      description: 'Cổng boss chưa mở.',
     };
   }
 
   if (power < boss.requiredPower) {
     return {
       tone: 'danger',
-      label: 'Chi quan sat',
-      description: `Thieu ${formatPower(boss.requiredPower - power)} luc chien de tham gia.`,
+      label: 'Chỉ quan sát',
+      description: `Thiếu ${formatPower(boss.requiredPower - power)} lực chiến để tham gia.`,
     };
   }
 
   if (power < boss.recommendedPower) {
     return {
       tone: 'warning',
-      label: 'Du dieu kien - rat kho',
-      description: 'Co the nhan nhiem vu boss, nhung boss dang manh hon ban.',
+      label: 'Đủ điều kiện - rất khó',
+      description: 'Có thể nhận nhiệm vụ boss, nhưng boss đang mạnh hơn bạn.',
     };
   }
 
   if (power >= boss.bossPower * 2) {
     return {
       tone: 'warning',
-      label: 'Qua manh so voi boss',
-      description: 'Sau nay loot hiem co the bi giam de tranh farm boss yeu.',
+      label: 'Quá mạnh so với boss',
+      description: 'Sau này đồ hiếm có thể bị giảm để tránh farm boss yếu.',
     };
   }
 
   return {
     tone: 'success',
-    label: 'Co the tham chien',
-    description: 'Luc chien du de danh nghiem tuc boss nay.',
+    label: 'Có thể tham chiến',
+    description: 'Lực chiến đủ để đánh nghiêm túc boss này.',
   };
 }
 
@@ -1240,7 +1843,7 @@ export function canPlayerJoinBoss(playerPower, rawBoss) {
   if (!boss) {
     return {
       allowed: false,
-      reason: 'Chua co boss de tham chien.',
+      reason: 'Chưa có boss để tham chiến.',
       missingPower: 0,
     };
   }
@@ -1277,40 +1880,116 @@ function hasBossParticipationAccess(bossState, playerPower) {
   return canPlayerJoinBoss(playerPower, bossState?.currentBoss).allowed;
 }
 
+function getBossTaskDeadlineAt(task, boss, now = Date.now()) {
+  const explicit = Number(task?.deadlineAt ?? task?.expiresAt);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+
+  const bossEndsAt = Number(boss?.endsAt);
+  const fallback = Number.isFinite(bossEndsAt)
+    ? bossEndsAt
+    : now + 3 * 60 * 60 * 1000;
+  const text = String(task?.deadline ?? '').toLowerCase();
+  const timeMatch = text.match(/(\d{1,2})[:h](\d{2})/);
+  if (timeMatch) {
+    const deadline = new Date(now);
+    deadline.setHours(Number(timeMatch[1]), Number(timeMatch[2]), 0, 0);
+    return Math.min(deadline.getTime(), fallback);
+  }
+
+  return fallback;
+}
+
+function withBossTaskDeadlines(tasks, boss, now = Date.now()) {
+  const rows = Array.isArray(tasks) ? tasks : [];
+  return rows.map((task) => {
+    if (!task || typeof task !== 'object') return task;
+    const deadlineAt = getBossTaskDeadlineAt(task, boss, now);
+    return {
+      ...task,
+      deadlineAt,
+      expiresAt: Number(task.expiresAt ?? deadlineAt),
+    };
+  });
+}
+
+function applyBossTaskDeadlines(base, playerPower, now = Date.now()) {
+  const boss = normalizeBossForDisplay(base.currentBoss, playerPower);
+  const tasks = withBossTaskDeadlines(base.tasks, boss, now);
+  let changed = false;
+  const nextTasks = tasks.map((task) => {
+    if (!task || typeof task !== 'object') return task;
+    if (['Completed', 'Failed', 'Locked'].includes(task.status)) return task;
+    const deadlineAt = getBossTaskDeadlineAt(task, boss, now);
+    if (deadlineAt > now) {
+      return { ...task, deadlineAt, expiresAt: deadlineAt };
+    }
+    changed = true;
+    return {
+      ...task,
+      status: 'Failed',
+      deadlineAt,
+      expiresAt: deadlineAt,
+      failedAt: now,
+      failReason: 'Nhiệm vụ đã quá hạn',
+    };
+  });
+
+  return changed
+    ? {
+        ...base,
+        tasks: nextTasks,
+      }
+    : base;
+}
+
+export function failExpiredBossTasks(bossState, playerPower, now = Date.now()) {
+  if (!bossState?.currentBoss) return bossState;
+  const base = ensurePlayableBossState(bossState, playerPower);
+  if (['defeated', 'expired'].includes(String(base.currentBoss?.status))) {
+    return base;
+  }
+  const bossForTime = normalizeBossForDisplay(base.currentBoss, playerPower);
+  if (bossForTime.endsAt <= now) {
+    return expireCurrentBoss(base, playerPower, now);
+  }
+  const next = applyBossTaskDeadlines(base, playerPower, now);
+  return next === base ? bossState : next;
+}
+
 export function createMockBossRules(boss) {
   return {
     bossId: boss?.id ?? 'mock_boss',
     groups: [
       {
-        title: 'Dieu kien tham gia',
+        title: 'Điều kiện tham gia',
         lines: [
-          `Yeu cau luc chien toi thieu: ${formatPower(boss?.requiredPower ?? 0)}.`,
-          'Duoi yeu cau chi co the quan sat, khong nhan loot chinh.',
+          `Yêu cầu lực chiến tối thiểu: ${formatPower(boss?.requiredPower ?? 0)}.`,
+          'Dưới yêu cầu chỉ có thể quan sát, không nhận đồ chính.',
         ],
       },
       {
-        title: 'Dieu kien nhan loot',
+        title: 'Điều kiện nhận đồ',
         lines: [
-          'Duoi 30% damage: khong nhan loot.',
-          '30-59% damage: 1 roll co ban.',
-          '60-99% damage: nhan roll chinh.',
-          'Ha boss: roll chinh + bonus.',
+          'Dưới 30% sát thương: không nhận đồ.',
+          '30-59% sát thương: 1 lượt quay cơ bản.',
+          '60-99% sát thương: nhận lượt quay chính.',
+          'Hạ boss: lượt quay chính + thưởng.',
         ],
       },
       {
-        title: 'Luat nhiem vu',
+        title: 'Luật nhiệm vụ',
         lines: [
-          'Nhiem vu boss tach biet voi nhiem vu ca nhan.',
-          'Moi nhiem vu co deadline va damage rieng.',
-          'Bao cao mo ho se chua duoc tinh hoan thanh.',
+          'Nhiệm vụ boss tách biệt với nhiệm vụ cá nhân.',
+          'Mỗi nhiệm vụ có hạn chót và sát thương riêng.',
+          'Báo cáo mơ hồ sẽ chưa được tính hoàn thành.',
         ],
       },
       {
-        title: 'Luat vat pham',
+        title: 'Luật vật phẩm',
         lines: [
-          'Giay Nghi Phep khong duoc dung de bo nhiem vu boss.',
-          'Bua May Man chi anh huong loot, khong tang damage.',
-          'Lenh Gia Han va Ve Lam Lai chi dung 1 lan moi tran.',
+          'Giấy Nghỉ Phép không được dùng để bỏ nhiệm vụ boss.',
+          'Bùa May Mắn chỉ ảnh hưởng đồ rơi, không tăng sát thương.',
+          'Lệnh Gia Hạn và Vé Làm Lại chỉ dùng 1 lần mỗi trận.',
         ],
       },
     ],
@@ -1325,7 +2004,7 @@ export function normalizeBossRulesForDisplay(rawRules, boss) {
       groups: rawRules.groups
         .filter((group) => group && typeof group === 'object')
         .map((group) => ({
-          title: String(group.title ?? 'Rule'),
+          title: String(group.title ?? 'Luật'),
           lines: Array.isArray(group.lines)
             ? group.lines.map((line) => String(line))
             : [],
@@ -1334,12 +2013,12 @@ export function normalizeBossRulesForDisplay(rawRules, boss) {
   }
 
   const groups = [
-    ['Dieu kien tham gia', rawRules.participation],
-    ['Dieu kien nhan loot', rawRules.loot],
-    ['Luat nhiem vu', rawRules.taskRules],
-    ['Luat that bai', rawRules.failureRules],
-    ['Luat vat pham', rawRules.itemRules],
-    ['Luat bang chung', rawRules.proofRules],
+    ['Điều kiện tham gia', rawRules.participation],
+    ['Điều kiện nhận đồ', rawRules.loot],
+    ['Luật nhiệm vụ', rawRules.taskRules],
+    ['Luật thất bại', rawRules.failureRules],
+    ['Luật vật phẩm', rawRules.itemRules],
+    ['Luật bằng chứng', rawRules.proofRules],
   ]
     .filter(([, lines]) => Array.isArray(lines) && lines.length > 0)
     .map(([title, lines]) => ({
@@ -1360,47 +2039,47 @@ export function createMockBossTasks(boss) {
     return [
       {
         id: 'task_deep_work',
-        title: 'Chem Dut Tri Hoan',
-        category: 'Cong viec',
-        difficulty: 'Kho',
-        objective: 'Deep work 60 phut khong dung mang xa hoi.',
-        deadline: 'Truoc 16:00 hom nay',
+        title: 'Chém Đứt Trì Hoãn',
+        category: 'Công việc',
+        difficulty: 'Khó',
+        objective: 'Tập trung sâu 60 phút không dùng mạng xã hội.',
+        deadline: 'Trước 16:00 hôm nay',
         damage: Math.round(hp * 0.25),
         status: 'Available',
-        proof: 'Bao gio bat dau, gio ket thuc va dau viec da xong.',
+        proof: 'Báo giờ bắt đầu, giờ kết thúc và đầu việc đã xong.',
       },
       {
         id: 'task_backlog',
-        title: 'Dot Ho So Ton Dong',
-        category: 'Cong viec',
-        difficulty: 'Kho',
-        objective: 'Hoan thanh 1 viec da tri hoan tu 3 ngay tro len.',
-        deadline: 'Truoc 18:00 hom nay',
+        title: 'Đốt Hồ Sơ Tồn Đọng',
+        category: 'Công việc',
+        difficulty: 'Khó',
+        objective: 'Hoàn thành 1 việc đã trì hoãn từ 3 ngày trở lên.',
+        deadline: 'Trước 18:00 hôm nay',
         damage: Math.round(hp * 0.3),
         status: 'Available',
-        proof: 'Mo ta viec ton dong va ket qua cuoi cung.',
+        proof: 'Mô tả việc tồn đọng và kết quả cuối cùng.',
       },
       {
         id: 'task_plan',
-        title: 'Phong An Nhieu Loan',
-        category: 'Tri tue',
-        difficulty: 'Vua',
-        objective: 'Don task list va chon 3 viec uu tien tiep theo.',
-        deadline: 'Truoc 21:00 hom nay',
+        title: 'Phong Ấn Nhiễu Loạn',
+        category: 'Trí tuệ',
+        difficulty: 'Vừa',
+        objective: 'Dọn danh sách việc và chọn 3 việc ưu tiên tiếp theo.',
+        deadline: 'Trước 21:00 hôm nay',
         damage: Math.round(hp * 0.18),
         status: 'Available',
-        proof: 'Ghi lai 3 viec uu tien.',
+        proof: 'Ghi lại 3 việc ưu tiên.',
       },
       {
         id: 'task_work_finisher',
-        title: 'Don Ket Lieu',
-        category: 'Cong viec',
-        difficulty: 'Ket lieu',
-        objective: 'Deep work them 45 phut hoac hoan thanh task chinh.',
-        deadline: 'Truoc khi boss bien mat',
+        title: 'Đòn Kết Liễu',
+        category: 'Công việc',
+        difficulty: 'Kết liễu',
+        objective: 'Tập trung sâu thêm 45 phút hoặc hoàn thành việc chính.',
+        deadline: 'Trước khi boss biến mất',
         damage: Math.round(hp * 0.32),
         status: 'Available',
-        proof: 'Bao ket qua cu the.',
+        proof: 'Báo kết quả cụ thể.',
       },
     ];
   }
@@ -1409,47 +2088,47 @@ export function createMockBossTasks(boss) {
     return [
       {
         id: 'task_pushups',
-        title: 'Cu Dam Khoi Dong',
-        category: 'The duc',
-        difficulty: 'Vua',
-        objective: 'Hit dat 60 cai, chia toi da 6 hiep.',
-        deadline: 'Truoc 18:30 hom nay',
+        title: 'Cú Đấm Khởi Động',
+        category: 'Thể dục',
+        difficulty: 'Vừa',
+        objective: 'Hít đất 60 cái, chia tối đa 6 hiệp.',
+        deadline: 'Trước 18:30 hôm nay',
         damage: Math.round(hp * 0.22),
         status: 'Available',
-        proof: 'Bao so hiep va reps tung hiep.',
+        proof: 'Báo số hiệp và số lần từng hiệp.',
       },
       {
         id: 'task_squat',
-        title: 'Pha Xieng I Ach',
-        category: 'The duc',
-        difficulty: 'Kho',
-        objective: 'Squat 120 cai, chia toi da 6 hiep.',
-        deadline: 'Truoc 19:00 hom nay',
+        title: 'Phá Xiềng Ì Ạch',
+        category: 'Thể dục',
+        difficulty: 'Khó',
+        objective: 'Squat 120 cái, chia tối đa 6 hiệp.',
+        deadline: 'Trước 19:00 hôm nay',
         damage: Math.round(hp * 0.27),
         status: 'Available',
-        proof: 'Bao so hiep va reps tung hiep.',
+        proof: 'Báo số hiệp và số lần từng hiệp.',
       },
       {
         id: 'task_plank',
-        title: 'Giu Than Bat Dong',
-        category: 'The duc',
-        difficulty: 'Vua',
-        objective: 'Plank tong 3 phut.',
-        deadline: 'Truoc 20:00 hom nay',
+        title: 'Giữ Thân Bất Động',
+        category: 'Thể dục',
+        difficulty: 'Vừa',
+        objective: 'Plank tổng 3 phút.',
+        deadline: 'Trước 20:00 hôm nay',
         damage: Math.round(hp * 0.18),
         status: 'Available',
-        proof: 'Bao so hiep plank va thoi luong tung hiep.',
+        proof: 'Báo số hiệp plank và thời lượng từng hiệp.',
       },
       {
         id: 'task_fitness_finisher',
-        title: 'Don Ket Lieu',
-        category: 'The duc',
-        difficulty: 'Ket lieu',
-        objective: 'Hoan thanh 3 bai bat ky trong cung mot buoi.',
-        deadline: 'Truoc khi boss bien mat',
+        title: 'Đòn Kết Liễu',
+        category: 'Thể dục',
+        difficulty: 'Kết liễu',
+        objective: 'Hoàn thành 3 bài bất kỳ trong cùng một buổi.',
+        deadline: 'Trước khi boss biến mất',
         damage: Math.round(hp * 0.35),
         status: 'Available',
-        proof: 'Tong ket toan bo buoi tap.',
+        proof: 'Tổng kết toàn bộ buổi tập.',
       },
     ];
   }
@@ -1458,47 +2137,47 @@ export function createMockBossTasks(boss) {
     return [
       {
         id: 'task_no_social',
-        title: 'Khoa Cong MXH',
-        category: 'Ky luat',
-        difficulty: 'Kho',
-        objective: 'Khong MXH giai tri trong 4 gio lien tuc.',
-        deadline: 'Truoc 22:00 hom nay',
+        title: 'Khóa Cổng MXH',
+        category: 'Kỷ luật',
+        difficulty: 'Khó',
+        objective: 'Không dùng mạng xã hội giải trí trong 4 giờ liên tục.',
+        deadline: 'Trước 22:00 hôm nay',
         damage: Math.round(hp * 0.28),
         status: 'Available',
-        proof: 'Bao khung gio bat dau/ket thuc.',
+        proof: 'Báo khung giờ bắt đầu/kết thúc.',
       },
       {
         id: 'task_no_delay',
-        title: 'Giet Thoi Tri Hoan',
-        category: 'Ky luat',
-        difficulty: 'Kho',
-        objective: 'Lam ngay 1 viec dang ne tranh trong 30 phut.',
-        deadline: 'Truoc 21:00 hom nay',
+        title: 'Giết Thói Trì Hoãn',
+        category: 'Kỷ luật',
+        difficulty: 'Khó',
+        objective: 'Làm ngay 1 việc đang né tránh trong 30 phút.',
+        deadline: 'Trước 21:00 hôm nay',
         damage: Math.round(hp * 0.24),
         status: 'Available',
-        proof: 'Bao viec da lam va ket qua.',
+        proof: 'Báo việc đã làm và kết quả.',
       },
       {
         id: 'task_clean_space',
-        title: 'Thanh Loc Moi Truong',
-        category: 'Tinh than',
-        difficulty: 'Vua',
-        objective: 'Don ban lam viec hoac phong trong 30 phut.',
-        deadline: 'Truoc 21:30 hom nay',
+        title: 'Thanh Lọc Môi Trường',
+        category: 'Tinh thần',
+        difficulty: 'Vừa',
+        objective: 'Dọn bàn làm việc hoặc phòng trong 30 phút.',
+        deadline: 'Trước 21:30 hôm nay',
         damage: Math.round(hp * 0.18),
         status: 'Available',
-        proof: 'Bao khu vuc da don.',
+        proof: 'Báo khu vực đã dọn.',
       },
       {
         id: 'task_chain_finisher',
-        title: 'Don Ket Lieu',
-        category: 'Ky luat',
-        difficulty: 'Ket lieu',
-        objective: 'Tong ket ngay va cam ket 1 quy tac cho ngay mai.',
-        deadline: 'Truoc khi boss bien mat',
+        title: 'Đòn Kết Liễu',
+        category: 'Kỷ luật',
+        difficulty: 'Kết liễu',
+        objective: 'Tổng kết ngày và cam kết 1 quy tắc cho ngày mai.',
+        deadline: 'Trước khi boss biến mất',
         damage: Math.round(hp * 0.32),
         status: 'Available',
-        proof: 'Ghi lai quy tac cam ket.',
+        proof: 'Ghi lại quy tắc cam kết.',
       },
     ];
   }
@@ -1507,47 +2186,47 @@ export function createMockBossTasks(boss) {
     return [
       {
         id: 'task_elite_focus',
-        title: 'Truy Vet Muc Tieu',
-        category: 'Tong hop',
-        difficulty: 'Rat kho',
-        objective: 'Hoan thanh 90 phut deep work hoac 1 viec rat quan trong.',
-        deadline: 'Trong cua so boss',
+        title: 'Truy Vết Mục Tiêu',
+        category: 'Tổng hợp',
+        difficulty: 'Rất khó',
+        objective: 'Hoàn thành 90 phút tập trung sâu hoặc 1 việc rất quan trọng.',
+        deadline: 'Trong cửa sổ boss',
         damage: Math.round(hp * 0.28),
         status: 'Available',
-        proof: 'Bao muc tieu, thoi gian lam va ket qua cu the.',
+        proof: 'Báo mục tiêu, thời gian làm và kết quả cụ thể.',
       },
       {
         id: 'task_elite_body',
-        title: 'Ep Than Luyen The',
-        category: 'The duc',
-        difficulty: 'Rat kho',
-        objective: 'Chon 3 bai: hit dat, squat, plank, burpee va hoan thanh tong 45 phut.',
-        deadline: 'Trong cua so boss',
+        title: 'Ép Thân Luyện Thể',
+        category: 'Thể dục',
+        difficulty: 'Rất khó',
+        objective: 'Chọn 3 bài: hít đất, squat, plank, burpee và hoàn thành tổng 45 phút.',
+        deadline: 'Trong cửa sổ boss',
         damage: Math.round(hp * 0.26),
         status: 'Available',
-        proof: 'Bao tung bai, so hiep va tong thoi gian.',
+        proof: 'Báo từng bài, số hiệp và tổng thời gian.',
       },
       {
         id: 'task_elite_discipline',
-        title: 'Cam Gioi Giai Tri',
-        category: 'Ky luat',
-        difficulty: 'Rat kho',
-        objective: 'Khong MXH/giai tri 6 gio lien tuc.',
-        deadline: 'Truoc khi boss bien mat',
+        title: 'Cấm Giới Giải Trí',
+        category: 'Kỷ luật',
+        difficulty: 'Rất khó',
+        objective: 'Không dùng mạng xã hội/giải trí 6 giờ liên tục.',
+        deadline: 'Trước khi boss biến mất',
         damage: Math.round(hp * 0.22),
         status: 'Available',
-        proof: 'Bao khung gio va cach kiem soat.',
+        proof: 'Báo khung giờ và cách kiểm soát.',
       },
       {
         id: 'task_elite_finisher',
-        title: 'Don Ket Lieu Tinh Anh',
-        category: 'Tong hop',
-        difficulty: 'Ket lieu',
-        objective: 'Tong ket tran va hoan thanh them 1 viec ban dang ne tranh.',
-        deadline: 'Truoc khi boss bien mat',
+        title: 'Đòn Kết Liễu Tinh Anh',
+        category: 'Tổng hợp',
+        difficulty: 'Kết liễu',
+        objective: 'Tổng kết trận và hoàn thành thêm 1 việc bạn đang né tránh.',
+        deadline: 'Trước khi boss biến mất',
         damage: Math.round(hp * 0.3),
         status: 'Available',
-        proof: 'Bao viec ne tranh va ket qua cuoi cung.',
+        proof: 'Báo việc né tránh và kết quả cuối cùng.',
       },
     ];
   }
@@ -1556,58 +2235,58 @@ export function createMockBossTasks(boss) {
     return [
       {
         id: 'task_world_gate',
-        title: 'Mo Cong The Gioi',
-        category: 'Tong hop',
-        difficulty: 'Cuc kho',
-        objective: 'Hoan thanh 120 phut deep work, chia toi da 3 phien.',
-        deadline: 'Trong ngay event',
+        title: 'Mở Cổng Thế Giới',
+        category: 'Tổng hợp',
+        difficulty: 'Cực khó',
+        objective: 'Hoàn thành 120 phút tập trung sâu, chia tối đa 3 phiên.',
+        deadline: 'Trong ngày sự kiện',
         damage: Math.round(hp * 0.22),
         status: 'Available',
-        proof: 'Bao tung phien, thoi gian va dau ra.',
+        proof: 'Báo từng phiên, thời gian và đầu ra.',
       },
       {
         id: 'task_world_body',
-        title: 'Than The Chiu Ap Luc',
-        category: 'The duc',
-        difficulty: 'Cuc kho',
-        objective: 'Tap 60 phut gom it nhat 4 bai khac nhau.',
-        deadline: 'Trong ngay event',
+        title: 'Thân Thể Chịu Áp Lực',
+        category: 'Thể dục',
+        difficulty: 'Cực khó',
+        objective: 'Tập 60 phút gồm ít nhất 4 bài khác nhau.',
+        deadline: 'Trong ngày sự kiện',
         damage: Math.round(hp * 0.2),
         status: 'Available',
-        proof: 'Bao danh sach bai tap, hiep, reps hoac thoi gian.',
+        proof: 'Báo danh sách bài tập, hiệp, số lần hoặc thời gian.',
       },
       {
         id: 'task_world_chain',
-        title: 'Khoa Chuoi The Gioi',
-        category: 'Ky luat',
-        difficulty: 'Cuc kho',
-        objective: 'Khong MXH/giai tri 8 gio va khong tri hoan viec chinh.',
-        deadline: 'Trong ngay event',
+        title: 'Khóa Chuỗi Thế Giới',
+        category: 'Kỷ luật',
+        difficulty: 'Cực khó',
+        objective: 'Không dùng mạng xã hội/giải trí 8 giờ và không trì hoãn việc chính.',
+        deadline: 'Trong ngày sự kiện',
         damage: Math.round(hp * 0.22),
         status: 'Available',
-        proof: 'Bao khung gio va viec chinh da xu ly.',
+        proof: 'Báo khung giờ và việc chính đã xử lý.',
       },
       {
         id: 'task_world_wisdom',
-        title: 'Doc Lenh Vuc Sau',
-        category: 'Tri tue',
-        difficulty: 'Rat kho',
-        objective: 'Hoc/doc 45 phut va viet lai 5 y ap dung duoc.',
-        deadline: 'Trong ngay event',
+        title: 'Đọc Lệnh Vực Sâu',
+        category: 'Trí tuệ',
+        difficulty: 'Rất khó',
+        objective: 'Học/đọc 45 phút và viết lại 5 ý áp dụng được.',
+        deadline: 'Trong ngày sự kiện',
         damage: Math.round(hp * 0.16),
         status: 'Available',
-        proof: 'Ghi 5 y ap dung.',
+        proof: 'Ghi 5 ý áp dụng.',
       },
       {
         id: 'task_world_finisher',
-        title: 'Pha Loi The Gioi',
-        category: 'Tong hop',
-        difficulty: 'Ket lieu',
-        objective: 'Hoan thanh viec kho nhat trong ngay va viet tong ket tran.',
-        deadline: 'Truoc khi boss bien mat',
+        title: 'Phá Lõi Thế Giới',
+        category: 'Tổng hợp',
+        difficulty: 'Kết liễu',
+        objective: 'Hoàn thành việc khó nhất trong ngày và viết tổng kết trận.',
+        deadline: 'Trước khi boss biến mất',
         damage: Math.round(hp * 0.28),
         status: 'Available',
-        proof: 'Bao viec kho nhat va ket qua.',
+        proof: 'Báo việc khó nhất và kết quả.',
       },
     ];
   }
@@ -1615,47 +2294,47 @@ export function createMockBossTasks(boss) {
   return [
     {
       id: 'task_opening',
-      title: 'Mo Tran',
-      category: 'Cong viec',
-      difficulty: 'Vua',
-      objective: 'Deep work 45 phut khong dung mang xa hoi.',
-      deadline: 'Truoc 15:00 hom nay',
+      title: 'Mở Trận',
+      category: 'Công việc',
+      difficulty: 'Vừa',
+      objective: 'Tập trung sâu 45 phút không dùng mạng xã hội.',
+      deadline: 'Trước 15:00 hôm nay',
       damage: Math.round(hp * 0.18),
       status: 'Available',
-      proof: 'Bao gio bat dau, gio ket thuc va viec da xong.',
+      proof: 'Báo giờ bắt đầu, giờ kết thúc và việc đã xong.',
     },
     {
       id: 'task_break_armor',
-      title: 'Pha Giap',
-      category: 'The duc',
-      difficulty: 'Kho',
-      objective: 'Hit dat 80 cai, chia toi da 8 hiep.',
-      deadline: 'Truoc 18:30 hom nay',
+      title: 'Phá Giáp',
+      category: 'Thể dục',
+      difficulty: 'Khó',
+      objective: 'Hít đất 80 cái, chia tối đa 8 hiệp.',
+      deadline: 'Trước 18:30 hôm nay',
       damage: Math.round(hp * 0.22),
       status: 'Available',
-      proof: 'Bao so hiep va reps tung hiep.',
+      proof: 'Báo số hiệp và số lần từng hiệp.',
     },
     {
       id: 'task_discipline',
-      title: 'Giu Ky Luat',
-      category: 'Ky luat',
-      difficulty: 'Kho',
-      objective: 'Khong MXH giai tri trong 4 gio lien tuc.',
-      deadline: 'Truoc 21:00 hom nay',
+      title: 'Giữ Kỷ Luật',
+      category: 'Kỷ luật',
+      difficulty: 'Khó',
+      objective: 'Không dùng mạng xã hội giải trí trong 4 giờ liên tục.',
+      deadline: 'Trước 21:00 hôm nay',
       damage: Math.round(hp * 0.25),
       status: 'Available',
-      proof: 'Bao khung gio bat dau/ket thuc.',
+      proof: 'Báo khung giờ bắt đầu/kết thúc.',
     },
     {
       id: 'task_finisher',
-      title: 'Don Ket Lieu',
-      category: 'Tong hop',
-      difficulty: 'Ket lieu',
-      objective: 'Tong ket ngay va xu ly 1 viec ton dong.',
-      deadline: 'Truoc khi boss bien mat',
+      title: 'Đòn Kết Liễu',
+      category: 'Tổng hợp',
+      difficulty: 'Kết liễu',
+      objective: 'Tổng kết ngày và xử lý 1 việc tồn đọng.',
+      deadline: 'Trước khi boss biến mất',
       damage: Math.round(hp * 0.4),
       status: 'Available',
-      proof: 'Bao ket qua tong ket va viec ton dong da xu ly.',
+      proof: 'Báo kết quả tổng kết và việc tồn đọng đã xử lý.',
     },
   ];
 }
@@ -1667,85 +2346,121 @@ export function normalizeBossTasksForDisplay(rawTasks, boss) {
 
   return rawTasks
     .filter((task) => task && typeof task === 'object')
-    .map((task) => ({
-      id: String(task.id ?? `${task.title}-${task.damage}`),
-      title: String(task.title ?? 'Boss task'),
-      category: String(task.category ?? 'Unknown'),
-      difficulty: String(task.difficulty ?? 'Unknown'),
-      objective: String(task.objective ?? task.description ?? ''),
-      deadline:
-        typeof task.deadline === 'string'
-          ? task.deadline
-          : typeof task.deadlineAt === 'number'
-            ? new Date(task.deadlineAt).toLocaleString('vi-VN')
-            : 'Chua co deadline',
-      damage: nonNegativeInt(task.damage),
-      status: String(task.status ?? 'available'),
-      proof: String(task.proof ?? task.completionRule ?? task.proofType ?? ''),
-    }));
+    .map((task) => {
+      const deadlineAt = getBossTaskDeadlineAt(task, boss, Date.now());
+      return {
+        id: String(task.id ?? `${task.title}-${task.damage}`),
+        title: String(task.title ?? 'Nhiệm vụ boss'),
+        category: String(task.category ?? 'Không rõ'),
+        difficulty: String(task.difficulty ?? 'Không rõ'),
+        objective: String(task.objective ?? task.description ?? ''),
+        deadline:
+          typeof task.deadline === 'string'
+            ? task.deadline
+            : typeof task.deadlineAt === 'number'
+              ? new Date(task.deadlineAt).toLocaleString('vi-VN')
+              : 'Chưa có hạn chót',
+        deadlineAt,
+        expiresAt: Number(task.expiresAt ?? deadlineAt),
+        damage: nonNegativeInt(task.damage),
+        status: String(task.status ?? 'Available'),
+        proof: String(task.proof ?? task.completionRule ?? task.proofType ?? ''),
+        challengeTier: String(task.challengeTier ?? ''),
+        proofPassScore:
+          task.proofPassScore == null
+            ? null
+            : nonNegativeInt(task.proofPassScore),
+        acceptedAt: task.acceptedAt ?? null,
+        completedAt: task.completedAt ?? null,
+        failedAt: task.failedAt ?? null,
+        failReason: String(task.failReason ?? ''),
+        submittedProof: String(task.submittedProof ?? ''),
+        proofScore:
+          task.proofScore == null ? null : nonNegativeInt(task.proofScore),
+        proofFeedback: String(task.proofFeedback ?? ''),
+        proofCheckedBy: String(task.proofCheckedBy ?? ''),
+        proofCheckedAt: task.proofCheckedAt ?? null,
+      };
+    });
 }
 
 export function createMockLootTable(boss = null) {
   const lootTier = clampNumber(nonNegativeInt(boss?.lootTier ?? 1), 1, 5);
-  const rateMultiplier = [0, 0.85, 1, 1.15, 1.35, 1.6][lootTier] ?? 1;
   const maxRolls = Math.max(3, 2 + lootTier);
   return {
     maxRolls,
     lootTier,
+    balanceVersion: 'discipline_safe_v1',
     mainLootRequirement:
       lootTier >= 4
-        ? 'Gay it nhat 70% HP boss hoac ha boss'
-        : 'Gay it nhat 60% HP boss',
+        ? 'Chỉ quay khi hạ boss; đồ cứu kỷ luật có tỉ lệ cực thấp.'
+        : 'Chỉ quay khi hạ boss; đồ cứu chuỗi/mở miễn phạt bị khóa theo bậc.',
     entries: [
       {
         id: 'item_large_mana_potion',
-        name: 'Binh Mana Lon',
+        name: 'Bình Mana Lớn',
         rarity: 'Rare',
-        rate: scaleDropRate('10%', rateMultiplier),
-        condition: '30% damage',
-        description: 'Hoi 35 MP.',
+        rate: formatDropRate(getDropRateCap('item_large_mana_potion', lootTier)),
+        condition: 'Hạ boss',
+        description: 'Hồi 35 MP.',
       },
       {
         id: 'item_life_shield',
-        name: 'Khien Sinh Menh',
+        name: 'Khiên Sinh Mệnh',
         rarity: 'Rare',
-        rate: scaleDropRate('12%', rateMultiplier),
-        condition: '30% damage',
-        description: 'Chan mat HP 1 lan.',
+        rate: formatDropRate(getDropRateCap('item_life_shield', lootTier)),
+        condition: 'Hạ boss',
+        description: 'Chặn mất HP 1 lần.',
       },
-      {
-        id: 'item_streak_freeze',
-        name: 'Binh Dong Bang Chuoi',
-        rarity: 'Epic',
-        rate: scaleDropRate('3%', Math.min(1.25, rateMultiplier)),
-        condition: '60% damage',
-        description: 'Nghi 1 ngay khong mat streak.',
-      },
-      {
-        id: 'item_rest_permit',
-        name: 'Giay Nghi Phep',
-        rarity: 'Legendary',
-        rate: scaleDropRate('0.7%', Math.min(1.35, rateMultiplier)),
-        condition: 'Ha boss',
-        description: 'Mot ngay nghi hop le, khong phat HP/streak.',
-      },
-      {
-        id: 'item_death_pardon',
-        name: 'Lenh Mien Tu',
-        rarity: 'Mythic',
-        rate: scaleDropRate('0.2%', Math.min(1.4, rateMultiplier)),
-        condition: 'Ha boss + ket lieu',
-        description: 'Mot lan chet khong mat streak/debuff.',
-      },
+      ...(lootTier >= 2
+        ? [
+            {
+              id: 'item_extend_order',
+              name: 'Lệnh Gia Hạn',
+              rarity: 'Epic',
+              rate: formatDropRate(getDropRateCap('item_extend_order', lootTier)),
+              condition: 'Hạ boss',
+              description: 'Gia hạn 1 nhiệm vụ boss.',
+            },
+            {
+              id: 'item_streak_freeze',
+              name: 'Bình Đóng Băng Chuỗi',
+              rarity: 'Epic',
+              rate: formatDropRate(getDropRateCap('item_streak_freeze', lootTier)),
+              condition: 'Hạ boss + hoàn thành ít nhất 1 nhiệm vụ Rất khó/Kết liễu',
+              description: 'Nghỉ 1 ngày không mất chuỗi. Tỉ lệ rơi cực hiếm.',
+            },
+          ]
+        : []),
       ...(lootTier >= 3
         ? [
             {
               id: 'item_lucky_charm',
-              name: 'Bua May Man Nho',
+              name: 'Bùa May Mắn Nhỏ',
               rarity: 'Epic',
-              rate: scaleDropRate('1.8%', Math.min(1.25, rateMultiplier)),
-              condition: 'Ha boss',
-              description: 'Tang nhe ti le loot hiem trong 1 tran sau.',
+              rate: formatDropRate(getDropRateCap('item_lucky_charm', lootTier)),
+              condition: 'Hạ boss',
+              description: 'Tăng nhẹ tỉ lệ đồ hiếm trong 1 trận sau.',
+            },
+          ]
+        : []),
+      ...(lootTier >= 4
+        ? [
+            {
+              id: 'item_rest_permit',
+              name: 'Giấy Nghỉ Phép',
+              rarity: 'Legendary',
+              rate: formatDropRate(getDropRateCap('item_rest_permit', lootTier)),
+              condition: 'Hạ boss tinh anh/thế giới + Kết liễu',
+              description: 'Một ngày nghỉ hợp lệ, không phạt HP/chuỗi. Cực hiếm.',
+            },
+            {
+              id: 'item_death_pardon',
+              name: 'Lệnh Miễn Tử',
+              rarity: 'Mythic',
+              rate: formatDropRate(getDropRateCap('item_death_pardon', lootTier)),
+              condition: 'Hạ boss tinh anh/thế giới + Kết liễu',
+              description: 'Một lần chết không mất chuỗi/debuff. Siêu hiếm.',
             },
           ]
         : []),
@@ -1753,11 +2468,11 @@ export function createMockLootTable(boss = null) {
         ? [
             {
               id: 'item_world_core',
-              name: 'Loi Boss The Gioi',
+              name: 'Lõi Boss Thế Giới',
               rarity: 'Mythic',
-              rate: '0.1%',
-              condition: 'Ha boss the gioi',
-              description: 'Nguyen lieu cuc hiem cho he boss sau nay.',
+              rate: formatDropRate(getDropRateCap('item_world_core', lootTier)),
+              condition: 'Hạ boss thế giới',
+              description: 'Nguyên liệu cực hiếm cho hệ boss sau này.',
             },
           ]
         : []),
@@ -1769,58 +2484,47 @@ export function normalizeLootTableForDisplay(rawLootTable) {
   if (!rawLootTable || typeof rawLootTable !== 'object') {
     return createMockLootTable();
   }
+  const lootTier = Math.max(1, nonNegativeInt(rawLootTable.lootTier ?? 1));
 
   const entries = Array.isArray(rawLootTable.entries)
     ? rawLootTable.entries
         .filter((entry) => entry && typeof entry === 'object')
-        .map((entry) => ({
-          id: String(entry.id ?? entry.itemId ?? entry.name ?? 'loot_item'),
-          name: String(
-            entry.name ??
-              getItemDefinition(String(entry.itemId ?? entry.id ?? '')).name
-          ),
-          rarity: String(
-            entry.rarity ??
-              getItemDefinition(String(entry.itemId ?? entry.id ?? '')).rarity
-          ),
-          iconKey: String(
-            entry.iconKey ??
-              getItemDefinition(String(entry.itemId ?? entry.id ?? '')).iconKey
-          ),
-          scope: String(
-            entry.scope ??
-              getItemDefinition(String(entry.itemId ?? entry.id ?? '')).scope
-          ),
-          useType: String(
-            entry.useType ??
-              getItemDefinition(String(entry.itemId ?? entry.id ?? '')).useType
-          ),
-          rate:
-            entry.rate != null
-              ? String(entry.rate)
-              : entry.dropRate != null
-                ? `${entry.dropRate}%`
-                : '?',
-          condition: String(
-            entry.condition ??
-              (entry.requiresDefeat
-                ? 'Ha boss'
-                : `${entry.minDamagePercent ?? 0}% damage`)
-          ),
-          description: String(
-            entry.description ??
-              getItemDefinition(String(entry.itemId ?? entry.id ?? '')).description
-          ),
-        }))
+        .map((entry) => {
+          const itemId = String(entry.itemId ?? entry.id ?? '').trim();
+          const definition = getItemDefinition(itemId);
+          const cappedRate = clampLootEntryRate(entry, lootTier);
+          return {
+            id: String(entry.id ?? entry.itemId ?? entry.name ?? 'loot_item'),
+            name: String(entry.name ?? definition.name),
+            rarity: String(entry.rarity ?? definition.rarity),
+            iconKey: String(entry.iconKey ?? definition.iconKey),
+            scope: String(entry.scope ?? definition.scope),
+            useType: String(entry.useType ?? definition.useType),
+            rate: cappedRate,
+            condition: String(
+              entry.condition ??
+                (entry.requiresDefeat
+                  ? 'Hạ boss'
+                  : `${entry.minDamagePercent ?? 0}% sát thương`)
+            ),
+            description: String(entry.description ?? definition.description),
+            disciplineSafe:
+              DISCIPLINE_PROTECTION_ITEM_IDS.has(itemId) ||
+              Boolean(entry.disciplineSafe),
+          };
+        })
+        .filter((entry) => parseRate(entry.rate) > 0)
     : [];
 
   return {
     maxRolls: nonNegativeInt(rawLootTable.maxRolls ?? 0),
-    lootTier: Math.max(1, nonNegativeInt(rawLootTable.lootTier ?? 1)),
+    lootTier,
+    balanceVersion: String(rawLootTable.balanceVersion ?? 'discipline_safe_v1'),
+    lootTheme: String(rawLootTable.lootTheme ?? ''),
     mainLootRequirement: String(
       rawLootTable.mainLootRequirement ??
         rawLootTable.mainRequirement ??
-        'Theo dieu kien damage cua boss'
+        'Theo điều kiện sát thương của boss'
     ),
     entries: entries.length ? entries : createMockLootTable().entries,
   };
@@ -1830,39 +2534,39 @@ export function createMockInventory() {
   return [
     {
       id: 'item_large_hp_potion',
-      name: 'Binh Mau Lon',
+      name: 'Bình Máu Lớn',
       rarity: 'Rare',
       quantity: 2,
-      scope: 'Ngoai boss',
-      description: 'Hoi 25 HP.',
-      state: 'Dung duoc',
+      scope: 'Ngoài boss',
+      description: 'Hồi 25 HP.',
+      state: 'Dùng được',
     },
     {
       id: 'item_streak_freeze',
-      name: 'Binh Dong Bang Chuoi',
+      name: 'Bình Đóng Băng Chuỗi',
       rarity: 'Epic',
       quantity: 1,
-      scope: 'Ngoai boss',
-      description: 'Nghi 1 ngay khong mat streak.',
-      state: 'Cooldown tuan',
+      scope: 'Ngoài boss',
+      description: 'Nghỉ 1 ngày không mất chuỗi.',
+      state: 'Hồi theo tuần',
     },
     {
       id: 'item_lucky_charm',
-      name: 'Bua May Man Nho',
+      name: 'Bùa May Mắn Nhỏ',
       rarity: 'Rare',
       quantity: 1,
       scope: 'Trong boss',
-      description: 'Tang nhe ti le loot hiem trong 1 tran.',
-      state: 'Dung trong tran',
+      description: 'Tăng nhẹ tỉ lệ đồ hiếm trong 1 trận.',
+      state: 'Dùng trong trận',
     },
     {
       id: 'item_extend_order',
-      name: 'Lenh Gia Han',
+      name: 'Lệnh Gia Hạn',
       rarity: 'Epic',
       quantity: 1,
       scope: 'Trong boss',
-      description: 'Gia han 1 nhiem vu boss.',
-      state: 'Dung trong tran',
+      description: 'Gia hạn 1 nhiệm vụ boss.',
+      state: 'Dùng trong trận',
     },
   ];
 }
