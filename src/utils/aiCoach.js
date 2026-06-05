@@ -1111,6 +1111,108 @@ function normalizeAiAssetSnapshotPayload(parsed) {
   };
 }
 
+function dateKeyFromFutureYears(years) {
+  const date = new Date();
+  const safeYears = Math.max(0, Number(years) || 0);
+  date.setFullYear(date.getFullYear() + safeYears);
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeAiAssetGoalsPayload(parsed) {
+  const rawGoals = Array.isArray(parsed?.goals)
+    ? parsed.goals
+    : Array.isArray(parsed?.items)
+      ? parsed.items
+      : parsed?.targetAmount != null
+        ? [parsed]
+        : [];
+
+  return rawGoals
+    .map((goal, index) => {
+      if (!goal || typeof goal !== 'object') return null;
+      const targetAmount = parseAiMoneyAmount(
+        goal.targetAmount ?? goal.amount ?? goal.target
+      );
+      if (targetAmount == null || targetAmount <= 0) return null;
+
+      const horizonYearsRaw =
+        goal.horizonYears ?? goal.years ?? goal.durationYears ?? goal.horizon;
+      const horizonYears = Math.max(0, Number(horizonYearsRaw) || 0);
+      const rawTargetDate = String(goal.targetDate ?? goal.deadline ?? '').trim();
+      const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(rawTargetDate)
+        ? rawTargetDate
+        : dateKeyFromFutureYears(horizonYears > 0 ? horizonYears : 1);
+      const label = String(goal.label ?? goal.name ?? '').trim();
+
+      return {
+        id: `asset-goal-${index}`,
+        label:
+          label ||
+          (horizonYears > 0
+            ? `Mục tiêu ${horizonYears} năm`
+            : 'Mục tiêu tài sản'),
+        targetAmount: Math.round(targetAmount),
+        targetDate,
+        horizonYears: Math.round(horizonYears * 100) / 100,
+        note: String(goal.note ?? '').trim().slice(0, 220),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function normalizeOptionalAiAssetSnapshotPayload(parsed) {
+  const rawCurrent =
+    parsed?.currentSnapshot ??
+    parsed?.currentAsset ??
+    parsed?.currentAssets ??
+    parsed?.current ??
+    null;
+  const totalRaw =
+    rawCurrent && typeof rawCurrent === 'object'
+      ? rawCurrent.total ?? rawCurrent.amount ?? rawCurrent.currentTotal
+      : parsed?.currentTotal ?? parsed?.currentAmount;
+  const currentTotal = parseAiMoneyAmount(totalRaw);
+
+  const rawItems =
+    rawCurrent && typeof rawCurrent === 'object' && Array.isArray(rawCurrent.items)
+      ? rawCurrent.items
+      : Array.isArray(parsed?.currentItems)
+        ? parsed.currentItems
+        : [];
+  const items = rawItems
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null;
+      const label = String(item.label ?? item.name ?? '').trim().slice(0, 60);
+      const amount = parseAiMoneyAmount(item.amount);
+      if (!label || amount == null || amount <= 0) return null;
+      return {
+        id: `asset-current-${index}`,
+        label,
+        amount: Math.round(amount),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 50);
+  const itemTotal = items.reduce((sum, item) => sum + item.amount, 0);
+  const total =
+    currentTotal != null && currentTotal > 0 ? Math.round(currentTotal) : itemTotal;
+
+  if (!total || total <= 0) return null;
+
+  return {
+    total,
+    items,
+    note: String(
+      (rawCurrent && typeof rawCurrent === 'object' ? rawCurrent.note : '') ??
+        parsed?.currentNote ??
+        ''
+    )
+      .trim()
+      .slice(0, 220),
+  };
+}
+
 const ASSET_PARSE_PROMPT = `Bạn là AI ghi nhận tổng tài sản cá nhân cho app QuestBoard.
 Nhiệm vụ: đọc câu tiếng Việt và trích tổng tài sản hiện tại hoặc các khoản cấu thành tài sản.
 
@@ -1210,6 +1312,138 @@ export async function fetchAssetSnapshotFromAI(params) {
   return {
     message: String(parsedRaw?.message ?? '').trim(),
     snapshot,
+  };
+}
+
+const ASSET_GOAL_PROMPT = `Bạn là AI lập mục tiêu tài sản cá nhân cho app QuestBoard.
+Nhiệm vụ: đọc câu tiếng Việt và tạo/cập nhật các mục tiêu tài sản theo thời gian.
+
+Quy tắc:
+- Hiểu các câu như "năm nay tích được 100tr", "5 năm nữa đạt 1 tỷ", "10 năm đạt 3 tỷ".
+- targetAmount là tổng tài sản muốn đạt tại thời điểm đó, không phải số tiền chi tiêu.
+- Nếu người dùng nói tài sản hiện có/hiện tại/đang có bao nhiêu, trả thêm currentSnapshot.
+- Nếu nói "trong năm nay", dùng ngày cuối năm hiện tại.
+- Nếu nói "5 năm nữa" hoặc "10 năm nữa", horizonYears tương ứng và targetDate là ngày tương lai phù hợp.
+- Có thể trả nhiều goals nếu người dùng nói nhiều mốc.
+- Hiểu đơn vị tiền Việt: k/nghìn/ngàn = x1000, tr/triệu/m = x1000000, tỷ/ty/b = x1000000000.
+- Trả về DUY NHẤT JSON hợp lệ, không markdown.
+
+Schema:
+{
+  "message": "tóm tắt ngắn",
+  "currentSnapshot": {
+    "total": 50000000,
+    "items": [
+      { "label": "Tài sản hiện có", "amount": 50000000 }
+    ],
+    "note": "tài sản hiện tại người dùng nói trong câu"
+  },
+  "goals": [
+    {
+      "label": "Mốc 5 năm",
+      "targetAmount": 1000000000,
+      "targetDate": "2031-06-05",
+      "horizonYears": 5,
+      "note": "ghi chú ngắn"
+    }
+  ]
+}`;
+
+export async function fetchAssetGoalsFromAI(params) {
+  const { text, currentTotal, currentGoals } = params ?? {};
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    throw new Error(MISSING_OPENAI_KEY_MESSAGE);
+  }
+
+  const userText = String(text ?? '').trim();
+  if (!userText) {
+    throw new Error('Nhập mục tiêu tài sản cần AI thiết lập.');
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: ASSET_GOAL_PROMPT },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              today,
+              currentTotal: Math.max(0, Number(currentTotal) || 0),
+              currentGoals: Array.isArray(currentGoals)
+                ? currentGoals.slice(0, 20)
+                : [],
+              request: userText,
+            }),
+          },
+        ],
+        temperature: 0.1,
+        max_tokens: 900,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(
+        'OpenAI HTTP 401: API key sai hoặc đã bị thu hồi. Vào More > Cài đặt > AI OpenAI và dán key mới.'
+      );
+    }
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI asset goals HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI asset goals: body không parse được');
+  }
+
+  const responseText = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!responseText) {
+    throw new Error('OpenAI asset goals: không có nội dung');
+  }
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(responseText));
+  } catch {
+    throw new Error('OpenAI asset goals: JSON không đọc được');
+  }
+
+  const goals = normalizeAiAssetGoalsPayload(parsedRaw);
+  if (goals.length === 0) {
+    throw new Error('AI chưa tìm thấy mục tiêu tài sản hợp lệ trong nội dung này.');
+  }
+  const currentSnapshot = normalizeOptionalAiAssetSnapshotPayload(parsedRaw);
+
+  return {
+    message: String(parsedRaw?.message ?? '').trim(),
+    goals,
+    currentSnapshot,
   };
 }
 

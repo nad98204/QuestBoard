@@ -1261,6 +1261,7 @@ export default function QuestBoardScreen() {
               budgetRecords={state.budgetRecords}
               moneyJars={state.moneyJars}
               assetSnapshot={state.assetSnapshot}
+              assetGoals={state.assetGoals}
               onTransactionsChange={(expenses) => {
                 commit((s) => ({ ...s, expenses }));
               }}
@@ -1278,6 +1279,9 @@ export default function QuestBoardScreen() {
               }}
               onAssetSnapshotChange={(assetSnapshot) => {
                 commit((s) => ({ ...s, assetSnapshot }));
+              }}
+              onAssetGoalsChange={(assetGoals) => {
+                commit((s) => ({ ...s, assetGoals }));
               }}
           />
         </AppShell>

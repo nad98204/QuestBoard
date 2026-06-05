@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { addDaysToKey, getTodayKey } from '../utils/rpg';
 import {
+  fetchAssetGoalsFromAI,
   fetchAssetSnapshotFromAI,
   fetchExpenseTransactionsFromAI,
   fetchBudgetRecordsFromAI,
@@ -244,6 +245,40 @@ function addMonthsToKey(monthKey, delta) {
   return getMonthKey(d);
 }
 
+function parseDateKey(dateKey) {
+  const [year, month, day] = String(dateKey ?? '').split('-').map(Number);
+  if (!year || !month || !day) return null;
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
+function monthsUntilDate(dateKey) {
+  const target = parseDateKey(dateKey);
+  if (!target) return 0;
+  const today = startOfDay(new Date());
+  const months =
+    (target.getFullYear() - today.getFullYear()) * 12 +
+    (target.getMonth() - today.getMonth()) +
+    (target.getDate() >= today.getDate() ? 1 : 0);
+  return Math.max(0, months);
+}
+
+function monthsLeftLabel(months) {
+  const safeMonths = Math.max(0, Math.round(Number(months) || 0));
+  if (safeMonths <= 0) return 'Đến hạn';
+  if (safeMonths < 12) return `Còn ${safeMonths} tháng`;
+  const years = Math.floor(safeMonths / 12);
+  const rest = safeMonths % 12;
+  return rest > 0 ? `Còn ${years} năm ${rest} tháng` : `Còn ${years} năm`;
+}
+
 function parseLocalDateTime(dateKey, timeKey) {
   const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey).trim());
   const timeMatch = /^(\d{2}):(\d{2})$/.exec(String(timeKey).trim());
@@ -446,6 +481,54 @@ function normalizeText(value, fallback = '') {
   return text || fallback;
 }
 
+function parseInlineMoneyAmount(raw) {
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) && raw > 0 ? Math.abs(raw) : null;
+  }
+
+  const text = String(raw ?? '').trim().toLowerCase();
+  if (!text) return null;
+
+  const unitMatch = text.match(
+    /(-?\d+(?:[.,]\d+)?)\s*(tỷ|ty|b|tr|triệu|m|k|nghìn|ngàn)/i
+  );
+  if (unitMatch) {
+    const value = Number(unitMatch[1].replace(',', '.'));
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const unit = unitMatch[2].toLowerCase();
+    if (unit === 'tỷ' || unit === 'ty' || unit === 'b') return value * 1000000000;
+    if (unit === 'tr' || unit === 'triệu' || unit === 'm') return value * 1000000;
+    return value * 1000;
+  }
+
+  const cleaned = text.replace(/[^\d]/g, '');
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function inferCurrentAssetSnapshotFromText(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return null;
+  const match = raw.match(
+    /(?:hiện\s*có|đang\s*có|(?:tôi|mình|em)\s*có|tài\s*(?:hiện\s*có|hiện\s*tại)|tài\s*sản\s*(?:hiện\s*tại|hiện\s*có)?|tài\s*sản\s*ròng)\s*(?:là|khoảng|tầm|được|:)?\s*(-?\d+(?:[.,]\d+)?\s*(?:tỷ|ty|b|tr|triệu|m|k|nghìn|ngàn)?)/i
+  );
+  if (!match) return null;
+  const total = parseInlineMoneyAmount(match[1]);
+  if (!total || total <= 0) return null;
+  return {
+    total: Math.round(total),
+    items: [
+      {
+        id: 'asset-current-inline',
+        label: 'Tài sản hiện có',
+        amount: Math.round(total),
+      },
+    ],
+    note: 'Cập nhật từ câu mục tiêu tài sản.',
+  };
+}
+
 function formatSnapshotTime(value) {
   const time = Number(value) || 0;
   if (!time) return '';
@@ -467,12 +550,14 @@ export default function ExpenseScreen({
   budgetRecords,
   moneyJars,
   assetSnapshot,
+  assetGoals,
   onTransactionsChange,
   onCategoriesChange,
   onLoanRecordsChange,
   onBudgetRecordsChange,
   onMoneyJarsChange,
   onAssetSnapshotChange,
+  onAssetGoalsChange,
 }) {
   const [draft, setDraft] = useState(buildInitialDraft);
   const [categoryDraft, setCategoryDraft] = useState('');
@@ -506,6 +591,10 @@ export default function ExpenseScreen({
   const [assetAiBusy, setAssetAiBusy] = useState(false);
   const [assetAiStatus, setAssetAiStatus] = useState('');
   const [assetAiError, setAssetAiError] = useState('');
+  const [assetGoalAiText, setAssetGoalAiText] = useState('');
+  const [assetGoalAiBusy, setAssetGoalAiBusy] = useState(false);
+  const [assetGoalAiStatus, setAssetGoalAiStatus] = useState('');
+  const [assetGoalAiError, setAssetGoalAiError] = useState('');
   const [activeLedgerTab, setActiveLedgerTab] = useState('transactions');
   const canAdd = filter === 'expense' || filter === 'income';
   const isEditing = editingId != null;
@@ -554,23 +643,72 @@ export default function ExpenseScreen({
     () => (Array.isArray(moneyJars) ? moneyJars : []),
     [moneyJars]
   );
+  const allAssetGoals = useMemo(
+    () => (Array.isArray(assetGoals) ? assetGoals : []),
+    [assetGoals]
+  );
+  const recordedAssetTotal = useMemo(
+    () =>
+      allTransactions.reduce(
+        (sum, tx) => sum + (Number(tx.amount) || 0),
+        0
+      ),
+    [allTransactions]
+  );
   const currentAssetSnapshot = useMemo(() => {
     const snapshot =
       assetSnapshot && typeof assetSnapshot === 'object' ? assetSnapshot : {};
     const items = Array.isArray(snapshot.items) ? snapshot.items : [];
+    const externalTotal = Math.max(0, Number(snapshot.total) || 0);
+    const total = Math.max(0, recordedAssetTotal + externalTotal);
+    const displayItems = [
+      {
+        id: 'asset-recorded-balance',
+        label: 'Số dư trong app',
+        amount: recordedAssetTotal,
+      },
+      ...items.map((item, index) => ({
+        id: String(item?.id ?? `asset-${index}`),
+        label: normalizeText(item?.label, 'Tài sản ngoài app'),
+        amount: Math.max(0, Number(item?.amount) || 0),
+      })),
+    ].filter((item) => item.amount !== 0 || item.label);
     return {
-      total: Math.max(0, Number(snapshot.total) || 0),
-      items: items
-        .map((item, index) => ({
-          id: String(item?.id ?? `asset-${index}`),
-          label: normalizeText(item?.label, 'Tai san'),
-          amount: Math.max(0, Number(item?.amount) || 0),
-        }))
-        .filter((item) => item.amount > 0 || item.label),
+      total,
+      recordedTotal: recordedAssetTotal,
+      externalTotal,
+      items: displayItems,
       note: normalizeText(snapshot.note),
       updatedAt: Number(snapshot.updatedAt) || 0,
     };
-  }, [assetSnapshot]);
+  }, [assetSnapshot, recordedAssetTotal]);
+
+  const assetGoalRows = useMemo(() => {
+    const currentTotal = currentAssetSnapshot.total;
+    return allAssetGoals
+      .filter((goal) => goal.status !== 'disabled')
+      .map((goal) => {
+        const targetAmount = Math.max(0, Number(goal.targetAmount) || 0);
+        const remaining = Math.max(0, targetAmount - currentTotal);
+        const monthsLeft = monthsUntilDate(goal.targetDate);
+        return {
+          ...goal,
+          targetAmount,
+          remaining,
+          monthsLeft,
+          monthlyNeed:
+            remaining > 0 && monthsLeft > 0 ? Math.ceil(remaining / monthsLeft) : 0,
+          progress:
+            targetAmount > 0 ? Math.min(1.5, currentTotal / targetAmount) : 0,
+          targetDateLabel: formatDateKeyLabel(goal.targetDate),
+        };
+      })
+      .sort((a, b) => {
+        const aDate = parseDateKey(a.targetDate)?.getTime() ?? 0;
+        const bDate = parseDateKey(b.targetDate)?.getTime() ?? 0;
+        return aDate - bDate;
+      });
+  }, [allAssetGoals, currentAssetSnapshot.total]);
 
   const monthTransactions = useMemo(
     () =>
@@ -1160,7 +1298,7 @@ export default function ExpenseScreen({
   const handleAssetAiNote = async () => {
     const text = normalizeText(assetAiText);
     if (!text) {
-      setAssetAiError('Nhap tong tai san hien tai, vi du: tien mat 5tr, ngan hang 40tr, dau tu 20tr.');
+      setAssetAiError('Nhập tài sản ngoài app, ví dụ: tiền mặt 5tr, tiết kiệm 15tr, đầu tư 20tr.');
       setAssetAiStatus('');
       return;
     }
@@ -1182,13 +1320,155 @@ export default function ExpenseScreen({
       onAssetSnapshotChange?.(nextSnapshot);
       setAssetAiText('');
       setAssetAiStatus(
-        result.message || 'Da cap nhat tong tai san ca nhan.'
+        result.message || 'Đã cập nhật tài sản ngoài app.'
       );
     } catch (e) {
-      setAssetAiError(e?.message ?? 'AI chua cap nhat duoc tong tai san. Thu lai sau.');
+      setAssetAiError(e?.message ?? 'AI chưa cập nhật được tài sản ngoài app. Thử lại sau.');
     } finally {
       setAssetAiBusy(false);
     }
+  };
+
+  const handleAssetGoalAiNote = async () => {
+    const text = normalizeText(assetGoalAiText);
+    if (!text) {
+      setAssetGoalAiError('Nhập mục tiêu như: năm nay đạt 100tr, 5 năm nữa đạt 1 tỷ.');
+      setAssetGoalAiStatus('');
+      return;
+    }
+
+    setAssetGoalAiBusy(true);
+    setAssetGoalAiError('');
+    setAssetGoalAiStatus('');
+    try {
+      const result = await fetchAssetGoalsFromAI({
+        text,
+        currentTotal: currentAssetSnapshot.total,
+        currentGoals: allAssetGoals
+          .filter((goal) => goal.status !== 'disabled')
+          .map((goal) => ({
+            label: goal.label,
+            targetAmount: goal.targetAmount,
+            targetDate: goal.targetDate,
+            horizonYears: goal.horizonYears,
+          })),
+      });
+
+      const createdAt = Date.now();
+      let nextGoals = [...allAssetGoals];
+      let createdCount = 0;
+      let updatedCount = 0;
+      for (const goal of result.goals) {
+        const labelKey = goal.label.trim().toLowerCase();
+        const existing = nextGoals.find(
+          (item) =>
+            item.status !== 'disabled' &&
+            String(item.label ?? '').trim().toLowerCase() === labelKey
+        );
+        if (existing) {
+          nextGoals = nextGoals.map((item) =>
+            item.id === existing.id
+              ? {
+                  ...item,
+                  targetAmount: goal.targetAmount,
+                  targetDate: goal.targetDate,
+                  horizonYears: goal.horizonYears,
+                  note: normalizeText(goal.note),
+                  updatedAt: Date.now(),
+                  generatedBy: 'openai_asset_goal_v1',
+                }
+              : item
+          );
+          updatedCount += 1;
+          continue;
+        }
+
+        nextGoals = [
+          {
+            id: `${createdAt}-asset-goal-${createdCount}-${Math.random()
+              .toString(36)
+              .slice(2, 8)}`,
+            label: goal.label,
+            targetAmount: goal.targetAmount,
+            targetDate: goal.targetDate,
+            horizonYears: goal.horizonYears,
+            note: normalizeText(goal.note),
+            status: 'active',
+            createdAt: createdAt + createdCount,
+            updatedAt: createdAt + createdCount,
+            generatedBy: 'openai_asset_goal_v1',
+          },
+          ...nextGoals,
+        ];
+        createdCount += 1;
+      }
+
+      onAssetGoalsChange?.(nextGoals);
+      const inferredSnapshot =
+        result.currentSnapshot?.total > 0
+          ? result.currentSnapshot
+          : inferCurrentAssetSnapshotFromText(text);
+      if (inferredSnapshot?.total > 0) {
+        const now = Date.now();
+        const externalTotal = Math.max(
+          0,
+          inferredSnapshot.total - recordedAssetTotal
+        );
+        onAssetSnapshotChange?.({
+          total: externalTotal,
+          items:
+            externalTotal > 0
+              ? [
+                  {
+                    id: `${now}-asset-external`,
+                    label: 'Tài sản ngoài app',
+                    amount: externalTotal,
+                  },
+                ]
+              : [],
+          note: normalizeText(
+            inferredSnapshot.note,
+            'Cập nhật tài sản hiện có từ mục tiêu.'
+          ),
+          updatedAt: now,
+          generatedBy: 'openai_asset_goal_current_v1',
+        });
+      }
+      setAssetGoalAiText('');
+      setAssetGoalAiStatus(
+        result.message ||
+          `Đã tạo ${createdCount} và cập nhật ${updatedCount} mục tiêu tài sản.`
+      );
+    } catch (e) {
+      setAssetGoalAiError(
+        e?.message ?? 'AI chưa thiết lập được mục tiêu tài sản. Thử lại sau.'
+      );
+    } finally {
+      setAssetGoalAiBusy(false);
+    }
+  };
+
+  const handleDisableAssetGoal = (id) => {
+    Alert.alert(
+      'Xóa mục tiêu tài sản?',
+      'Mục tiêu này sẽ bị ẩn khỏi tab Tài sản.',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Xóa',
+          style: 'destructive',
+          onPress: () => {
+            onAssetGoalsChange?.(
+              allAssetGoals.map((goal) =>
+                goal.id === id
+                  ? { ...goal, status: 'disabled', updatedAt: Date.now() }
+                  : goal
+              )
+            );
+          },
+        },
+      ]
+    );
   };
 
   const handleDisableJar = (id) => {
@@ -1433,7 +1713,9 @@ export default function ExpenseScreen({
                       ? 'Sổ vay nợ riêng'
                       : activeLedgerTab === 'budgets'
                         ? 'Theo dõi ngân sách'
-                        : 'Chiến lược chia hũ'}
+                        : activeLedgerTab === 'assets'
+                          ? 'Tài sản cá nhân'
+                          : 'Chiến lược chia hũ'}
                 </Text>
               </View>
               <Pressable
@@ -1511,6 +1793,22 @@ export default function ExpenseScreen({
                   ]}
                 >
                   Hũ tiền
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.ledgerTabBtn,
+                  activeLedgerTab === 'assets' && styles.ledgerTabActive,
+                ]}
+                onPress={() => setActiveLedgerTab('assets')}
+              >
+                <Text
+                  style={[
+                    styles.ledgerTabText,
+                    activeLedgerTab === 'assets' && styles.ledgerTabTextActive,
+                  ]}
+                >
+                  Tài sản
                 </Text>
               </Pressable>
             </View>
@@ -1908,16 +2206,16 @@ export default function ExpenseScreen({
           </View>
           ) : null}
 
-          {activeLedgerTab === 'jars' ? (
-          <View style={styles.jarCard}>
+          {activeLedgerTab === 'assets' ? (
+          <View style={styles.assetCard}>
             <View style={styles.aiHeaderRow}>
-              <View style={styles.jarAvatar}>
-                <Text style={styles.jarAvatarText}>JAR</Text>
+              <View style={styles.assetAvatar}>
+                <Text style={styles.assetAvatarText}>NET</Text>
               </View>
               <View style={styles.aiHeaderCopy}>
-                <Text style={styles.aiTitle}>Chiến lược chia hũ</Text>
+                <Text style={styles.aiTitle}>Tổng tài sản cá nhân</Text>
                 <Text style={styles.aiSubtitle}>
-                  AI giúp chia % thu nhập tháng: thiết yếu, tích lũy, đầu tư, đi chơi người yêu.
+                  Tự tính từ giao dịch trong app, cộng thêm tài sản bạn note ngoài hệ thống.
                 </Text>
               </View>
             </View>
@@ -1925,11 +2223,12 @@ export default function ExpenseScreen({
             <View style={styles.assetBox}>
               <View style={styles.assetTopLine}>
                 <View style={styles.assetTitleWrap}>
-                  <Text style={styles.assetLabel}>Tong tai san ca nhan</Text>
+                  <Text style={styles.assetLabel}>Tổng tài sản cá nhân</Text>
                   <Text style={styles.txMeta}>
-                    {currentAssetSnapshot.updatedAt
-                      ? `Cap nhat ${formatSnapshotTime(currentAssetSnapshot.updatedAt)}`
-                      : 'Chua cap nhat'}
+                    Số dư app {formatCurrency(currentAssetSnapshot.recordedTotal)}
+                    {currentAssetSnapshot.externalTotal > 0
+                      ? ` · ngoài app ${formatCurrency(currentAssetSnapshot.externalTotal)}`
+                      : ''}
                   </Text>
                 </View>
                 <Text style={styles.assetValue}>
@@ -1952,7 +2251,7 @@ export default function ExpenseScreen({
                 </View>
               ) : (
                 <Text style={styles.txMeta}>
-                  Ghi nhanh bang AI: tien mat, ngan hang, dau tu, tiet kiem...
+                  Chưa có giao dịch hoặc tài sản ngoài app để tính.
                 </Text>
               )}
 
@@ -1961,35 +2260,168 @@ export default function ExpenseScreen({
                   {currentAssetSnapshot.note}
                 </Text>
               ) : null}
+            </View>
+
+            <Text style={styles.fieldLabel}>Tài sản ngoài app</Text>
+            <TextInput
+              value={assetAiText}
+              onChangeText={(v) => {
+                setAssetAiText(v);
+                setAssetAiError('');
+                setAssetAiStatus('');
+              }}
+              placeholder="ví dụ: tiền mặt ngoài app 5tr, tiết kiệm 15tr, đầu tư 20tr"
+              placeholderTextColor="#6f6a7d"
+              style={[styles.input, styles.assetInput]}
+              multiline
+              editable={!assetAiBusy}
+            />
+            {assetAiError ? <Text style={styles.errorText}>{assetAiError}</Text> : null}
+            {assetAiStatus ? (
+              <Text style={styles.assetStatusText}>{assetAiStatus}</Text>
+            ) : null}
+            <Pressable
+              style={[styles.assetSubmitBtn, assetAiBusy && styles.disabledBtn]}
+              onPress={handleAssetAiNote}
+              disabled={assetAiBusy}
+            >
+              {assetAiBusy ? (
+                <ActivityIndicator color="#071416" />
+              ) : (
+                  <Text style={styles.assetSubmitText}>AI thêm tài sản ngoài app</Text>
+              )}
+            </Pressable>
+
+            <View style={styles.assetGoalSection}>
+              <View style={styles.assetGoalHeader}>
+                <View style={styles.assetTitleWrap}>
+                  <Text style={styles.assetLabel}>Mục tiêu tài sản</Text>
+                  <Text style={styles.txMeta}>
+                    Lập mốc năm nay, 5 năm, 10 năm và theo dõi tiến độ từ tài sản hiện tại.
+                  </Text>
+                </View>
+              </View>
 
               <TextInput
-                value={assetAiText}
+                value={assetGoalAiText}
                 onChangeText={(v) => {
-                  setAssetAiText(v);
-                  setAssetAiError('');
-                  setAssetAiStatus('');
+                  setAssetGoalAiText(v);
+                  setAssetGoalAiError('');
+                  setAssetGoalAiStatus('');
                 }}
-                placeholder="vi du: tien mat 5tr, ngan hang 40tr, dau tu 20tr, tiet kiem 15tr"
+                placeholder="ví dụ: hiện có 50tr, năm nay đạt 100tr, 5 năm nữa đạt 1 tỷ"
                 placeholderTextColor="#6f6a7d"
                 style={[styles.input, styles.assetInput]}
                 multiline
-                editable={!assetAiBusy}
+                editable={!assetGoalAiBusy}
               />
-              {assetAiError ? <Text style={styles.errorText}>{assetAiError}</Text> : null}
-              {assetAiStatus ? (
-                <Text style={styles.assetStatusText}>{assetAiStatus}</Text>
+              {currentAssetSnapshot.total <= 0 ? (
+                <Text style={styles.txMeta}>
+                  Nếu thanh đang 0, hãy nói kèm tài sản hiện có, ví dụ: hiện có 50tr, 5 năm nữa đạt 1 tỷ.
+                </Text>
+              ) : null}
+              {assetGoalAiError ? (
+                <Text style={styles.errorText}>{assetGoalAiError}</Text>
+              ) : null}
+              {assetGoalAiStatus ? (
+                <Text style={styles.assetStatusText}>{assetGoalAiStatus}</Text>
               ) : null}
               <Pressable
-                style={[styles.assetSubmitBtn, assetAiBusy && styles.disabledBtn]}
-                onPress={handleAssetAiNote}
-                disabled={assetAiBusy}
+                style={[
+                  styles.assetSubmitBtn,
+                  assetGoalAiBusy && styles.disabledBtn,
+                ]}
+                onPress={handleAssetGoalAiNote}
+                disabled={assetGoalAiBusy}
               >
-                {assetAiBusy ? (
+                {assetGoalAiBusy ? (
                   <ActivityIndicator color="#071416" />
                 ) : (
-                  <Text style={styles.assetSubmitText}>AI cap nhat tai san</Text>
+                  <Text style={styles.assetSubmitText}>AI lập mục tiêu tài sản</Text>
                 )}
               </Pressable>
+
+              <View style={styles.assetGoalList}>
+                {assetGoalRows.length === 0 ? (
+                  <Text style={styles.emptyText}>Chưa có mục tiêu tài sản nào.</Text>
+                ) : (
+                  assetGoalRows.map((goal) => {
+                    const percent = Math.round((goal.progress || 0) * 100);
+                    const reached = goal.remaining <= 0;
+                    return (
+                      <View key={goal.id} style={styles.assetGoalRow}>
+                        <View style={styles.budgetTopLine}>
+                          <View style={styles.budgetNameWrap}>
+                            <Text style={styles.txTitle} numberOfLines={1}>
+                              {goal.label}
+                            </Text>
+                            <Text style={styles.txMeta} numberOfLines={1}>
+                              Hạn {goal.targetDateLabel || goal.targetDate} ·{' '}
+                              {monthsLeftLabel(goal.monthsLeft)}
+                            </Text>
+                          </View>
+                          <Text style={styles.assetGoalTarget}>
+                            {formatCurrency(goal.targetAmount)}
+                          </Text>
+                        </View>
+
+                        <View style={styles.budgetProgressTrack}>
+                          <View
+                            style={[
+                              styles.assetGoalProgressFill,
+                              reached && styles.assetGoalReachedFill,
+                              { width: `${Math.min(100, percent)}%` },
+                            ]}
+                          />
+                        </View>
+                        <Text style={styles.txMeta}>
+                          {currentAssetSnapshot.total > 0
+                            ? `Hiện có ${formatCurrency(currentAssetSnapshot.total)} · ${
+                                reached
+                                  ? 'đã đạt mục tiêu'
+                                  : `còn thiếu ${formatCurrency(goal.remaining)}`
+                              }`
+                            : 'Chưa cập nhật tài sản hiện có'}
+                        </Text>
+                        {currentAssetSnapshot.total > 0 && !reached && goal.monthlyNeed > 0 ? (
+                          <Text style={styles.txMeta}>
+                            Cần tăng khoảng {formatCurrency(goal.monthlyNeed)} / tháng.
+                          </Text>
+                        ) : null}
+                        {goal.note ? (
+                          <Text style={styles.txNote} numberOfLines={2}>
+                            {goal.note}
+                          </Text>
+                        ) : null}
+                        <Pressable
+                          style={styles.assetGoalDeleteBtn}
+                          onPress={() => handleDisableAssetGoal(goal.id)}
+                        >
+                          <Text style={styles.assetGoalDeleteText}>
+                            Xóa mục tiêu
+                          </Text>
+                        </Pressable>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            </View>
+          </View>
+          ) : null}
+
+          {activeLedgerTab === 'jars' ? (
+          <View style={styles.jarCard}>
+            <View style={styles.aiHeaderRow}>
+              <View style={styles.jarAvatar}>
+                <Text style={styles.jarAvatarText}>JAR</Text>
+              </View>
+              <View style={styles.aiHeaderCopy}>
+                <Text style={styles.aiTitle}>Chiến lược chia hũ</Text>
+                <Text style={styles.aiSubtitle}>
+                  AI giúp chia % thu nhập tháng: thiết yếu, tích lũy, đầu tư, đi chơi người yêu.
+                </Text>
+              </View>
             </View>
 
             <TextInput
@@ -2596,11 +3028,13 @@ const styles = StyleSheet.create({
   },
   ledgerTabs: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 12,
   },
   ledgerTabBtn: {
     flex: 1,
+    minWidth: 92,
     minHeight: 38,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2687,6 +3121,14 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
   },
+  assetCard: {
+    backgroundColor: '#071416',
+    borderWidth: 1,
+    borderColor: '#164e52',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
   aiHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2753,6 +3195,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '900',
   },
+  assetAvatar: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2dd4bf',
+    backgroundColor: 'rgba(45, 212, 191, 0.12)',
+  },
+  assetAvatarText: {
+    color: '#67e8f9',
+    fontSize: 11,
+    fontWeight: '900',
+  },
   aiHeaderCopy: {
     flex: 1,
     minWidth: 0,
@@ -2773,11 +3230,6 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   assetBox: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#164e52',
-    backgroundColor: '#071416',
-    padding: 10,
     marginBottom: 12,
   },
   assetTopLine: {
@@ -2847,6 +3299,55 @@ const styles = StyleSheet.create({
   assetSubmitText: {
     color: '#071416',
     fontSize: 13,
+    fontWeight: '900',
+  },
+  assetGoalSection: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#164e52',
+  },
+  assetGoalHeader: {
+    marginBottom: 2,
+  },
+  assetGoalList: {
+    gap: 10,
+    marginTop: 12,
+  },
+  assetGoalRow: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#164e52',
+    backgroundColor: '#0a1c1f',
+    padding: 10,
+  },
+  assetGoalTarget: {
+    color: '#67e8f9',
+    fontSize: 13,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  assetGoalProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#67e8f9',
+  },
+  assetGoalReachedFill: {
+    backgroundColor: '#34d399',
+  },
+  assetGoalDeleteBtn: {
+    alignSelf: 'flex-start',
+    minHeight: 30,
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#164e52',
+    paddingHorizontal: 10,
+    marginTop: 8,
+  },
+  assetGoalDeleteText: {
+    color: '#67e8f9',
+    fontSize: 11,
     fontWeight: '900',
   },
   aiStatusText: {

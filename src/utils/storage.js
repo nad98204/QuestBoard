@@ -299,6 +299,7 @@ const MAX_EXPENSE_CATEGORIES = 100;
 const MAX_LOAN_RECORDS = 1000;
 const MAX_BUDGET_RECORDS = 500;
 const MAX_MONEY_JARS = 100;
+const MAX_ASSET_GOALS = 100;
 const BAD_HABIT_KEYS = ['no_social', 'no_junk', 'no_delay'];
 
 function defaultBossState() {
@@ -824,6 +825,46 @@ function normalizeAssetSnapshot(raw) {
   };
 }
 
+function normalizeAssetGoals(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((goal, index) => {
+      if (!goal || typeof goal !== 'object' || Array.isArray(goal)) return null;
+
+      const targetAmount = Math.abs(Number(goal.targetAmount) || 0);
+      if (!Number.isFinite(targetAmount) || targetAmount <= 0) return null;
+
+      const createdAt = Number.isFinite(Number(goal.createdAt))
+        ? Number(goal.createdAt)
+        : Date.now() - index;
+      const label = String(goal.label ?? goal.name ?? '').trim();
+      const rawTargetDate = String(goal.targetDate ?? goal.deadline ?? '').trim();
+      const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(rawTargetDate)
+        ? rawTargetDate
+        : getTodayKey();
+      const horizonYears = Math.max(0, Number(goal.horizonYears) || 0);
+
+      return {
+        id: String(goal.id ?? `${createdAt}-asset-goal-${index}`).trim(),
+        label: label || 'Mục tiêu tài sản',
+        targetAmount: Math.round(targetAmount),
+        targetDate,
+        horizonYears: Math.round(horizonYears * 100) / 100,
+        note: String(goal.note ?? '').trim(),
+        status: goal.status === 'disabled' ? 'disabled' : 'active',
+        createdAt,
+        updatedAt: Number.isFinite(Number(goal.updatedAt))
+          ? Number(goal.updatedAt)
+          : createdAt,
+        ...(goal.generatedBy ? { generatedBy: String(goal.generatedBy) } : {}),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .slice(0, MAX_ASSET_GOALS);
+}
+
 function applyDeathToProfile(profile) {
   const xpInLevel = Math.max(
     0,
@@ -1095,6 +1136,7 @@ export function createInitialState() {
     budgetRecords: [],
     moneyJars: [],
     assetSnapshot: normalizeAssetSnapshot(null),
+    assetGoals: [],
     updatedAt: Date.now(),
   };
 }
@@ -1206,6 +1248,7 @@ function migrateParsed(data) {
     budgetRecords: normalizeBudgetRecords(data.budgetRecords),
     moneyJars: normalizeMoneyJars(data.moneyJars),
     assetSnapshot: normalizeAssetSnapshot(data.assetSnapshot),
+    assetGoals: normalizeAssetGoals(data.assetGoals),
   };
 }
 
@@ -1224,6 +1267,7 @@ function toPersistedPayload(state) {
     budgetRecords: normalizeBudgetRecords(state.budgetRecords),
     moneyJars: normalizeMoneyJars(state.moneyJars),
     assetSnapshot: normalizeAssetSnapshot(state.assetSnapshot),
+    assetGoals: normalizeAssetGoals(state.assetGoals),
     fitnessConfig:
       state.fitnessConfig != null
         ? normalizeFitnessConfig(state.fitnessConfig)
