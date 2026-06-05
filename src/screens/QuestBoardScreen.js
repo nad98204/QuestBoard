@@ -1257,11 +1257,27 @@ export default function QuestBoardScreen() {
           <ExpenseScreen
               transactions={state.expenses}
               customCategories={state.expenseCategories}
+              loanRecords={state.loanRecords}
+              budgetRecords={state.budgetRecords}
+              moneyJars={state.moneyJars}
+              assetSnapshot={state.assetSnapshot}
               onTransactionsChange={(expenses) => {
                 commit((s) => ({ ...s, expenses }));
               }}
               onCategoriesChange={(expenseCategories) => {
                 commit((s) => ({ ...s, expenseCategories }));
+              }}
+              onLoanRecordsChange={(loanRecords) => {
+                commit((s) => ({ ...s, loanRecords }));
+              }}
+              onBudgetRecordsChange={(budgetRecords) => {
+                commit((s) => ({ ...s, budgetRecords }));
+              }}
+              onMoneyJarsChange={(moneyJars) => {
+                commit((s) => ({ ...s, moneyJars }));
+              }}
+              onAssetSnapshotChange={(assetSnapshot) => {
+                commit((s) => ({ ...s, assetSnapshot }));
               }}
           />
         </AppShell>

@@ -279,6 +279,940 @@ function parseCoachResponse(text) {
   return { message, actions };
 }
 
+function parseAiMoneyAmount(raw) {
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) ? Math.abs(raw) : null;
+  }
+
+  const text = String(raw ?? '').trim().toLowerCase();
+  if (!text) return null;
+
+  const compact = text.replace(/\s+/g, ' ');
+  const unitMatch = compact.match(/(-?\d+(?:[.,]\d+)?)\s*(tỷ|ty|b|tr|triệu|m|k|nghìn|ngàn)/i);
+  if (unitMatch) {
+    const value = Number(unitMatch[1].replace(',', '.'));
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const unit = unitMatch[2];
+    if (unit === 'tỷ' || unit === 'ty' || unit === 'b') {
+      return value * 1000000000;
+    }
+    return unit === 'tr' || unit === 'triệu' || unit === 'm'
+      ? value * 1000000
+      : value * 1000;
+  }
+
+  let cleaned = compact.replace(/[^\d,.-]/g, '');
+  if (!cleaned || cleaned === '-' || cleaned === '+') return null;
+
+  const lastComma = cleaned.lastIndexOf(',');
+  const lastDot = cleaned.lastIndexOf('.');
+  if (lastComma >= 0 && lastDot >= 0) {
+    cleaned =
+      lastComma > lastDot
+        ? cleaned.replace(/\./g, '').replace(',', '.')
+        : cleaned.replace(/,/g, '');
+  } else if (lastComma >= 0) {
+    const parts = cleaned.split(',');
+    cleaned =
+      parts.length > 1 && parts[parts.length - 1].length === 3
+        ? parts.join('')
+        : cleaned.replace(',', '.');
+  } else if (lastDot >= 0) {
+    const parts = cleaned.split('.');
+    if (parts.length > 1 && parts[parts.length - 1].length === 3) {
+      cleaned = parts.join('');
+    }
+  }
+
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? Math.abs(n) : null;
+}
+
+function normalizeDateKey(value, fallback) {
+  const text = String(value ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : fallback;
+}
+
+function normalizeTimeKey(value, fallback) {
+  const text = String(value ?? '').trim();
+  return /^\d{2}:\d{2}$/.test(text) ? text : fallback;
+}
+
+function pickExpenseCategoryId(rawId, type, categories) {
+  const allowed = (Array.isArray(categories) ? categories : []).filter(
+    (cat) => cat?.type === type || cat?.type === 'both'
+  );
+  const id = String(rawId ?? '').trim();
+  if (allowed.some((cat) => cat.id === id)) return id;
+  if (allowed.some((cat) => cat.id === 'other')) return 'other';
+  return allowed[0]?.id ?? 'other';
+}
+
+function normalizeAiExpenseTransactionsPayload(parsed, params) {
+  const rows = Array.isArray(parsed?.transactions) ? parsed.transactions : [];
+  const categories = Array.isArray(params?.categories) ? params.categories : [];
+  const fallbackDate = params?.dateKey ?? getTodayKey();
+  const fallbackTime = params?.timeKey ?? '12:00';
+
+  return rows
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null;
+      const type = row.type === 'income' ? 'income' : 'expense';
+      const amountAbs = parseAiMoneyAmount(row.amount);
+      if (amountAbs == null || amountAbs <= 0) return null;
+
+      const description = String(row.description ?? row.name ?? '')
+        .trim()
+        .slice(0, 80);
+      if (!description) return null;
+
+      return {
+        description,
+        amount: type === 'income' ? Math.round(amountAbs) : -Math.round(amountAbs),
+        category: pickExpenseCategoryId(row.categoryId, type, categories),
+        date: normalizeDateKey(row.date, fallbackDate),
+        time: normalizeTimeKey(row.time, fallbackTime),
+        note: String(row.note ?? '').trim().slice(0, 160),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+const EXPENSE_PARSE_PROMPT = `Bạn là AI ghi chép chi tiêu cho app QuestBoard.
+Nhiệm vụ: đọc câu người dùng nhập bằng tiếng Việt và tách thành các giao dịch thu/chi có cấu trúc.
+
+Quy tắc:
+- Mỗi khoản có số tiền riêng thì tạo một giao dịch riêng. Ví dụ "bữa tối 100k, mua sắm 400k" => 2 giao dịch.
+- Hiểu đơn vị tiền Việt: k/nghìn/ngàn = x1000, tr/triệu/m = x1000000.
+- Nếu không nói rõ là thu nhập/lương/nhận tiền thì mặc định là chi tiêu.
+- Chọn categoryId từ danh sách category được cung cấp. Không tự tạo categoryId mới.
+- Nếu không chắc danh mục, dùng "other".
+- Nếu không có ngày/giờ trong câu, dùng ngày giờ mặc định từ tin user.
+- Trả về DUY NHẤT JSON hợp lệ, không markdown, không giải thích.
+
+Schema:
+{
+  "message": "tóm tắt ngắn",
+  "transactions": [
+    {
+      "type": "expense",
+      "description": "Bữa tối",
+      "amount": 100000,
+      "categoryId": "food",
+      "date": "YYYY-MM-DD",
+      "time": "HH:mm",
+      "note": "ghi chú ngắn nếu có"
+    }
+  ]
+}`;
+
+export async function fetchExpenseTransactionsFromAI(params) {
+  const {
+    text,
+    categories,
+    dateKey = getTodayKey(),
+    timeKey = '12:00',
+  } = params ?? {};
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    throw new Error(MISSING_OPENAI_KEY_MESSAGE);
+  }
+
+  const userText = String(text ?? '').trim();
+  if (!userText) {
+    throw new Error('Nhập nội dung chi tiêu cần AI ghi lại.');
+  }
+
+  const categoryLines = (Array.isArray(categories) ? categories : [])
+    .map((cat) => {
+      const type = cat?.type ?? 'expense';
+      return `- ${cat.id}: ${cat.label} (${type})`;
+    })
+    .join('\n');
+
+  const userLine = [
+    `Ngày mặc định: ${dateKey}. Giờ mặc định: ${timeKey}.`,
+    'Danh mục được phép:',
+    categoryLines || '- other: Khác (both)',
+    '',
+    `Nội dung người dùng: ${userText}`,
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: EXPENSE_PARSE_PROMPT },
+          { role: 'user', content: userLine },
+        ],
+        temperature: 0.1,
+        max_tokens: 900,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(
+        'OpenAI HTTP 401: API key sai hoặc đã bị thu hồi. Vào More > Cài đặt > AI OpenAI và dán key mới.'
+      );
+    }
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI expense HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI expense: body không parse được');
+  }
+
+  const responseText = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!responseText) {
+    throw new Error('OpenAI expense: không có nội dung');
+  }
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(responseText));
+  } catch {
+    throw new Error('OpenAI expense: JSON không đọc được');
+  }
+
+  const transactions = normalizeAiExpenseTransactionsPayload(parsedRaw, {
+    categories,
+    dateKey,
+    timeKey,
+  });
+  if (transactions.length === 0) {
+    throw new Error('AI chưa tìm thấy khoản thu/chi hợp lệ trong nội dung này.');
+  }
+
+  return {
+    message: String(parsedRaw?.message ?? '').trim(),
+    transactions,
+  };
+}
+
+function normalizeAiLoanRecordsPayload(parsed, params) {
+  const rows = Array.isArray(parsed?.entries)
+    ? parsed.entries
+    : Array.isArray(parsed?.loans)
+      ? parsed.loans
+      : [];
+  const fallbackDate = params?.dateKey ?? getTodayKey();
+
+  return rows
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null;
+      const action = row.action === 'payment' ? 'payment' : 'create';
+      const type = row.type === 'borrowed' ? 'borrowed' : 'lent';
+      const paymentType =
+        row.paymentType === 'paid'
+          ? 'paid'
+          : row.paymentType === 'received'
+            ? 'received'
+            : '';
+      const amount = parseAiMoneyAmount(row.amount);
+      if (amount == null || amount <= 0) return null;
+
+      const person = String(row.person ?? row.name ?? '')
+        .trim()
+        .slice(0, 60);
+      if (!person) return null;
+
+      return {
+        action,
+        type,
+        paymentType,
+        person,
+        amount: Math.round(amount),
+        date: normalizeDateKey(row.date, fallbackDate),
+        dueDate: row.dueDate ? normalizeDateKey(row.dueDate, '') : '',
+        note: String(row.note ?? '').trim().slice(0, 180),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+const LOAN_PARSE_PROMPT = `Bạn là AI ghi sổ vay nợ cho app QuestBoard.
+Nhiệm vụ: đọc câu tiếng Việt và tách thành các hành động vay nợ riêng, KHÔNG ghi chi tiêu thường.
+
+Hành động:
+- "create": tạo khoản vay nợ mới.
+- "payment": ghi một lần trả bớt/trả hết cho khoản vay nợ đã có.
+
+Phân loại khoản mới:
+- "lent": người dùng cho người khác vay, người khác đang nợ người dùng.
+- "borrowed": người dùng vay/mượn tiền của người khác, người dùng đang nợ người đó.
+
+Phân loại thanh toán:
+- "received": người khác trả tiền cho người dùng. Ví dụ "Nam trả tôi 500k", "Nam trả 500k" khi Nam là người nợ.
+- "paid": người dùng trả tiền cho người khác. Ví dụ "trả Lan 500k", "mình trả Lan 500k".
+
+Quy tắc:
+- Chỉ tạo record khi nội dung có ý vay/mượn/cho vay/nợ/trả sau.
+- Nếu nội dung là trả bớt/trả nợ/trả tiền một phần thì action phải là "payment", không tạo khoản vay mới.
+- "cho mẹ 1tr", "tặng bạn 500k", "đi chơi với người yêu 300k" không phải vay nợ nếu không nói vay/nợ.
+- Hiểu đơn vị tiền Việt: k/nghìn/ngàn = x1000, tr/triệu/m = x1000000.
+- Nếu có nhiều người/khoản, tách thành nhiều record.
+- Nếu không có ngày, dùng ngày mặc định.
+- Nếu có hạn trả rõ ràng thì điền dueDate, không có thì để "".
+- Trả về DUY NHẤT JSON hợp lệ, không markdown, không giải thích.
+
+Schema:
+{
+  "message": "tóm tắt ngắn",
+  "entries": [
+    {
+      "action": "create",
+      "type": "lent",
+      "paymentType": "",
+      "person": "Nam",
+      "amount": 500000,
+      "date": "YYYY-MM-DD",
+      "dueDate": "",
+      "note": "ghi chú ngắn nếu có"
+    },
+    {
+      "action": "payment",
+      "type": "lent",
+      "paymentType": "received",
+      "person": "Nam",
+      "amount": 500000,
+      "date": "YYYY-MM-DD",
+      "dueDate": "",
+      "note": "Nam trả đợt 1"
+    }
+  ]
+}`;
+
+export async function fetchLoanRecordsFromAI(params) {
+  const { text, dateKey = getTodayKey(), openLoans } = params ?? {};
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    throw new Error(MISSING_OPENAI_KEY_MESSAGE);
+  }
+
+  const userText = String(text ?? '').trim();
+  if (!userText) {
+    throw new Error('Nhập nội dung vay nợ cần AI ghi lại.');
+  }
+
+  const openLoanLines = (Array.isArray(openLoans) ? openLoans : [])
+    .map((loan) => {
+      const typeLabel = loan.type === 'borrowed' ? 'borrowed' : 'lent';
+      return `- ${typeLabel}: ${loan.person}, còn ${loan.remainingAmount}, gốc ${loan.amount}`;
+    })
+    .join('\n');
+
+  const userLine = [
+    `Ngày mặc định: ${dateKey}.`,
+    'Các khoản đang mở để đối chiếu khi ghi payment:',
+    openLoanLines || '- không có',
+    `Nội dung người dùng: ${userText}`,
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: LOAN_PARSE_PROMPT },
+          { role: 'user', content: userLine },
+        ],
+        temperature: 0.1,
+        max_tokens: 800,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(
+        'OpenAI HTTP 401: API key sai hoặc đã bị thu hồi. Vào More > Cài đặt > AI OpenAI và dán key mới.'
+      );
+    }
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI loan HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI loan: body không parse được');
+  }
+
+  const responseText = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!responseText) {
+    throw new Error('OpenAI loan: không có nội dung');
+  }
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(responseText));
+  } catch {
+    throw new Error('OpenAI loan: JSON không đọc được');
+  }
+
+  const loans = normalizeAiLoanRecordsPayload(parsedRaw, { dateKey });
+  if (loans.length === 0) {
+    throw new Error('AI chưa tìm thấy khoản vay nợ hợp lệ trong nội dung này.');
+  }
+
+  return {
+    message: String(parsedRaw?.message ?? '').trim(),
+    loans,
+  };
+}
+
+function normalizeBudgetPeriod(raw) {
+  const text = String(raw ?? '').trim();
+  if (text === 'daily' || text === 'weekly' || text === 'monthly') return text;
+  return 'monthly';
+}
+
+function pickBudgetCategoryId(rawId, categories) {
+  const allowed = (Array.isArray(categories) ? categories : []).filter(
+    (cat) => cat?.type === 'expense' || cat?.type === 'both'
+  );
+  const id = String(rawId ?? '').trim();
+  if (allowed.some((cat) => cat.id === id)) return id;
+  if (allowed.some((cat) => cat.id === 'other')) return 'other';
+  return allowed[0]?.id ?? 'other';
+}
+
+function normalizeAiBudgetRecordsPayload(parsed, params) {
+  const rows = Array.isArray(parsed?.budgets) ? parsed.budgets : [];
+  const categories = Array.isArray(params?.categories) ? params.categories : [];
+  const fallbackDate = params?.dateKey ?? getTodayKey();
+
+  return rows
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null;
+      const limit = parseAiMoneyAmount(row.limit ?? row.amount);
+      if (limit == null || limit <= 0) return null;
+      return {
+        action: row.action === 'update' ? 'update' : 'create',
+        period: normalizeBudgetPeriod(row.period),
+        category: pickBudgetCategoryId(row.categoryId, categories),
+        limit: Math.round(limit),
+        startDate: normalizeDateKey(row.startDate ?? row.date, fallbackDate),
+        note: String(row.note ?? '').trim().slice(0, 180),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+const BUDGET_PARSE_PROMPT = `Bạn là AI thiết lập ngân sách chi tiêu cho app QuestBoard.
+Nhiệm vụ: đọc câu tiếng Việt và tạo/sửa ngân sách theo ngày, tuần hoặc tháng.
+
+Chu kỳ hợp lệ:
+- "daily": ngân sách hàng ngày.
+- "weekly": ngân sách hàng tuần.
+- "monthly": ngân sách hàng tháng.
+
+Quy tắc:
+- Chỉ tạo ngân sách cho danh mục chi tiêu, không tạo ngân sách thu nhập.
+- Chọn categoryId từ danh sách được phép. Không tự tạo categoryId mới.
+- Nếu không chắc danh mục, dùng "other".
+- Hiểu đơn vị tiền Việt: k/nghìn/ngàn = x1000, tr/triệu/m = x1000000.
+- "hôm nay", "mỗi ngày", "hàng ngày" => daily.
+- "tuần này", "mỗi tuần", "hàng tuần" => weekly.
+- "tháng này", "mỗi tháng", "hàng tháng" => monthly.
+- Nếu câu có ý chỉnh/sửa/giảm/tăng/đổi ngân sách đã có thì action là "update"; còn lại là "create".
+- Nếu có nhiều danh mục, tách thành nhiều budget.
+- Trả về DUY NHẤT JSON hợp lệ, không markdown, không giải thích.
+
+Schema:
+{
+  "message": "tóm tắt ngắn",
+  "budgets": [
+    {
+      "action": "create",
+      "period": "monthly",
+      "categoryId": "food",
+      "limit": 3000000,
+      "startDate": "YYYY-MM-DD",
+      "note": "ghi chú ngắn nếu có"
+    }
+  ]
+}`;
+
+export async function fetchBudgetRecordsFromAI(params) {
+  const {
+    text,
+    categories,
+    currentBudgets,
+    dateKey = getTodayKey(),
+  } = params ?? {};
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    throw new Error(MISSING_OPENAI_KEY_MESSAGE);
+  }
+
+  const userText = String(text ?? '').trim();
+  if (!userText) {
+    throw new Error('Nhập nội dung ngân sách cần AI thiết lập.');
+  }
+
+  const categoryLines = (Array.isArray(categories) ? categories : [])
+    .filter((cat) => cat?.type === 'expense' || cat?.type === 'both')
+    .map((cat) => `- ${cat.id}: ${cat.label} (${cat.type ?? 'expense'})`)
+    .join('\n');
+  const budgetLines = (Array.isArray(currentBudgets) ? currentBudgets : [])
+    .map(
+      (budget) =>
+        `- ${budget.period}: ${budget.categoryLabel} (${budget.category}) = ${budget.limit}`
+    )
+    .join('\n');
+
+  const userLine = [
+    `Ngày mặc định: ${dateKey}.`,
+    'Danh mục được phép:',
+    categoryLines || '- other: Khác (both)',
+    'Ngân sách hiện có để đối chiếu khi update:',
+    budgetLines || '- không có',
+    '',
+    `Nội dung người dùng: ${userText}`,
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: BUDGET_PARSE_PROMPT },
+          { role: 'user', content: userLine },
+        ],
+        temperature: 0.1,
+        max_tokens: 900,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(
+        'OpenAI HTTP 401: API key sai hoặc đã bị thu hồi. Vào More > Cài đặt > AI OpenAI và dán key mới.'
+      );
+    }
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI budget HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI budget: body không parse được');
+  }
+
+  const responseText = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!responseText) {
+    throw new Error('OpenAI budget: không có nội dung');
+  }
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(responseText));
+  } catch {
+    throw new Error('OpenAI budget: JSON không đọc được');
+  }
+
+  const budgets = normalizeAiBudgetRecordsPayload(parsedRaw, {
+    categories,
+    dateKey,
+  });
+  if (budgets.length === 0) {
+    throw new Error('AI chưa tìm thấy ngân sách hợp lệ trong nội dung này.');
+  }
+
+  return {
+    message: String(parsedRaw?.message ?? '').trim(),
+    budgets,
+  };
+}
+
+function normalizeJarPriority(raw) {
+  const text = String(raw ?? '').trim();
+  if (text === 'critical' || text === 'important' || text === 'nice') return text;
+  return 'important';
+}
+
+function normalizeAiMoneyJarsPayload(parsed, params) {
+  const rows = Array.isArray(parsed?.jars) ? parsed.jars : [];
+  const categories = Array.isArray(params?.categories) ? params.categories : [];
+
+  return rows
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null;
+      const label = String(row.label ?? row.name ?? '').trim().slice(0, 60);
+      if (!label) return null;
+      const percent = Math.max(0, Math.min(100, Number(row.percent) || 0));
+      if (!Number.isFinite(percent) || percent <= 0) return null;
+      const rawCategory = String(row.categoryId ?? '').trim();
+      const category =
+        rawCategory && rawCategory !== 'none'
+          ? pickBudgetCategoryId(rawCategory, categories)
+          : '';
+      return {
+        action: row.action === 'update' ? 'update' : 'create',
+        label,
+        percent: Math.round(percent * 100) / 100,
+        category,
+        priority: normalizeJarPriority(row.priority),
+        note: String(row.note ?? '').trim().slice(0, 200),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 30);
+}
+
+const MONEY_JAR_PROMPT = `Bạn là AI cố vấn chiến lược tài chính cá nhân cho app QuestBoard.
+Nhiệm vụ: đọc câu tiếng Việt và tạo/sửa chiến lược chia hũ theo % thu nhập mỗi tháng.
+
+Khái niệm:
+- Mỗi "hũ" là một khoản phân bổ theo phần trăm tổng thu nhập tháng.
+- Tổng phần trăm nên thực tế. Nếu người dùng yêu cầu "lên chiến lược" mà không nêu đủ, hãy đề xuất các hũ quan trọng.
+- Nếu là hũ dùng để chi tiêu theo danh mục cụ thể, chọn categoryId từ danh sách được phép. Ví dụ hũ "Đi chơi người yêu" dùng categoryId "dating".
+- Nếu là hũ tích lũy/đầu tư/quỹ dự phòng không gắn trực tiếp danh mục chi tiêu thì categoryId là "none".
+
+Priority:
+- "critical": hũ bắt buộc/thiết yếu/quỹ dự phòng/nợ.
+- "important": hũ quan trọng/tích lũy/đầu tư/học tập.
+- "nice": hũ vui chơi/hưởng thụ/đi chơi/người yêu.
+
+Quy tắc:
+- Chỉ trả hũ theo phần trăm, không trả số tiền cố định.
+- Nếu người dùng nói sửa/đổi/tăng/giảm hũ thì action là "update"; còn lại "create".
+- Có thể tạo hũ "Đi chơi người yêu" nếu người dùng nhắc người yêu/date.
+- Không vượt quá 100% nếu người dùng yêu cầu một chiến lược đầy đủ.
+- Trả về DUY NHẤT JSON hợp lệ, không markdown.
+
+Schema:
+{
+  "message": "tóm tắt chiến lược ngắn",
+  "jars": [
+    {
+      "action": "create",
+      "label": "Thiết yếu",
+      "percent": 55,
+      "categoryId": "none",
+      "priority": "critical",
+      "note": "ăn uống, nhà cửa, đi lại cơ bản"
+    },
+    {
+      "action": "create",
+      "label": "Đi chơi người yêu",
+      "percent": 10,
+      "categoryId": "dating",
+      "priority": "nice",
+      "note": "date, ăn tối, xem phim"
+    }
+  ]
+}`;
+
+export async function fetchMoneyJarsFromAI(params) {
+  const { text, categories, currentJars } = params ?? {};
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    throw new Error(MISSING_OPENAI_KEY_MESSAGE);
+  }
+
+  const userText = String(text ?? '').trim();
+  if (!userText) {
+    throw new Error('Nhập chiến lược chia hũ cần AI thiết lập.');
+  }
+
+  const categoryLines = (Array.isArray(categories) ? categories : [])
+    .filter((cat) => cat?.type === 'expense' || cat?.type === 'both')
+    .map((cat) => `- ${cat.id}: ${cat.label} (${cat.type ?? 'expense'})`)
+    .join('\n');
+  const jarLines = (Array.isArray(currentJars) ? currentJars : [])
+    .map(
+      (jar) =>
+        `- ${jar.label}: ${jar.percent}% (${jar.category || 'none'}, ${jar.priority})`
+    )
+    .join('\n');
+
+  const userLine = [
+    'Danh mục chi tiêu được phép cho hũ có tracking:',
+    categoryLines || '- other: Khác (both)',
+    'Hũ hiện có để đối chiếu khi update:',
+    jarLines || '- không có',
+    '',
+    `Nội dung người dùng: ${userText}`,
+  ].join('\n');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: MONEY_JAR_PROMPT },
+          { role: 'user', content: userLine },
+        ],
+        temperature: 0.2,
+        max_tokens: 1100,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(
+        'OpenAI HTTP 401: API key sai hoặc đã bị thu hồi. Vào More > Cài đặt > AI OpenAI và dán key mới.'
+      );
+    }
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI money jars HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI money jars: body không parse được');
+  }
+
+  const responseText = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!responseText) {
+    throw new Error('OpenAI money jars: không có nội dung');
+  }
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(responseText));
+  } catch {
+    throw new Error('OpenAI money jars: JSON không đọc được');
+  }
+
+  const jars = normalizeAiMoneyJarsPayload(parsedRaw, { categories });
+  if (jars.length === 0) {
+    throw new Error('AI chưa tìm thấy hũ tiền hợp lệ trong nội dung này.');
+  }
+
+  return {
+    message: String(parsedRaw?.message ?? '').trim(),
+    jars,
+  };
+}
+
+function normalizeAiAssetSnapshotPayload(parsed) {
+  const rawItems = Array.isArray(parsed?.items) ? parsed.items : [];
+  const items = rawItems
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null;
+      const label = String(item.label ?? item.name ?? '').trim().slice(0, 60);
+      const amount = parseAiMoneyAmount(item.amount);
+      if (!label || amount == null || amount <= 0) return null;
+      return {
+        id: `asset-${index}`,
+        label,
+        amount: Math.round(amount),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 50);
+  const itemTotal = items.reduce((sum, item) => sum + item.amount, 0);
+  const parsedTotal = parseAiMoneyAmount(parsed?.total);
+  const total =
+    parsedTotal != null && parsedTotal > 0 ? Math.round(parsedTotal) : itemTotal;
+  if (!total || total <= 0) {
+    throw new Error('AI chưa tìm thấy tổng tài sản hợp lệ trong nội dung này.');
+  }
+  return {
+    total,
+    items,
+    note: String(parsed?.note ?? '').trim().slice(0, 220),
+  };
+}
+
+const ASSET_PARSE_PROMPT = `Bạn là AI ghi nhận tổng tài sản cá nhân cho app QuestBoard.
+Nhiệm vụ: đọc câu tiếng Việt và trích tổng tài sản hiện tại hoặc các khoản cấu thành tài sản.
+
+Quy tắc:
+- Tài sản gồm tiền mặt, ngân hàng, ví điện tử, tiết kiệm, đầu tư, vàng, tài sản có thể quy đổi.
+- Nếu người dùng đưa các khoản con, cộng thành total nếu không nói tổng.
+- Không trừ nợ trừ khi người dùng nói rõ đây là "tài sản ròng" hoặc đã trừ nợ.
+- Hiểu đơn vị tiền Việt: k/nghìn/ngàn = x1000, tr/triệu/m = x1000000, tỷ = x1000000000.
+- Trả về DUY NHẤT JSON hợp lệ, không markdown.
+
+Schema:
+{
+  "message": "tóm tắt ngắn",
+  "total": 120000000,
+  "items": [
+    { "label": "Ngân hàng", "amount": 50000000 },
+    { "label": "Đầu tư", "amount": 70000000 }
+  ],
+  "note": "ghi chú ngắn"
+}`;
+
+export async function fetchAssetSnapshotFromAI(params) {
+  const { text } = params ?? {};
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    throw new Error(MISSING_OPENAI_KEY_MESSAGE);
+  }
+
+  const userText = String(text ?? '').trim();
+  if (!userText) {
+    throw new Error('Nhập tổng tài sản hiện tại cần AI ghi lại.');
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res;
+  try {
+    res = await fetch(OPENAI_CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: ASSET_PARSE_PROMPT },
+          { role: 'user', content: userText },
+        ],
+        temperature: 0.1,
+        max_tokens: 700,
+        response_format: { type: 'json_object' },
+      }),
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const rawBody = await res.text();
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(
+        'OpenAI HTTP 401: API key sai hoặc đã bị thu hồi. Vào More > Cài đặt > AI OpenAI và dán key mới.'
+      );
+    }
+    let hint = rawBody.slice(0, 320);
+    try {
+      const errJson = JSON.parse(rawBody);
+      hint = errJson?.error?.message ?? hint;
+    } catch {
+      /* keep */
+    }
+    throw new Error(`OpenAI asset HTTP ${res.status}: ${hint}`);
+  }
+
+  let json;
+  try {
+    json = JSON.parse(rawBody);
+  } catch {
+    throw new Error('OpenAI asset: body không parse được');
+  }
+
+  const responseText = String(json?.choices?.[0]?.message?.content ?? '').trim();
+  if (!responseText) {
+    throw new Error('OpenAI asset: không có nội dung');
+  }
+
+  let parsedRaw;
+  try {
+    parsedRaw = JSON.parse(stripJsonFromMarkdown(responseText));
+  } catch {
+    throw new Error('OpenAI asset: JSON không đọc được');
+  }
+
+  const snapshot = normalizeAiAssetSnapshotPayload(parsedRaw);
+  return {
+    message: String(parsedRaw?.message ?? '').trim(),
+    snapshot,
+  };
+}
+
 /**
  * @param {object} params
  * @param {object} params.state — state QuestBoard đầy đủ

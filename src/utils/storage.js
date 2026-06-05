@@ -296,6 +296,9 @@ const DEFAULT_PROFILE = () => ({
 const MAX_HISTORY_DAYS = 365 * 5;
 const MAX_EXPENSE_TRANSACTIONS = 5000;
 const MAX_EXPENSE_CATEGORIES = 100;
+const MAX_LOAN_RECORDS = 1000;
+const MAX_BUDGET_RECORDS = 500;
+const MAX_MONEY_JARS = 100;
 const BAD_HABIT_KEYS = ['no_social', 'no_junk', 'no_delay'];
 
 function defaultBossState() {
@@ -460,10 +463,122 @@ function normalizeExpenseCategories(raw) {
 
   const reservedIds = new Set([
     'food',
+    'breakfast',
+    'lunch',
+    'dinner',
+    'coffee_tea',
+    'snacks',
+    'groceries_market',
+    'supermarket_food',
+    'restaurant',
+    'drinks',
     'transport',
-    'entertainment',
+    'fuel',
+    'parking',
+    'ride_hailing',
+    'public_transport',
+    'flight',
+    'vehicle_maintenance',
+    'car_wash',
+    'traffic_fine',
+    'vehicle_rental',
+    'housing_rent',
+    'electricity',
+    'water_bill',
+    'internet_bill',
+    'gas_bill',
+    'apartment_fee',
+    'furniture',
+    'home_appliances',
+    'home_repair',
+    'cleaning_supplies',
+    'personal_shopping',
+    'clothing',
+    'shoes',
+    'bags_accessories',
+    'cosmetics',
+    'skincare',
+    'perfume',
+    'haircare',
+    'personal_items',
+    'laundry',
+    'healthcare',
+    'medical_checkup',
+    'medicine',
+    'health_insurance',
+    'dental',
+    'glasses_lens',
+    'supplements',
+    'gym_sports',
+    'mental_health',
     'work_tools',
+    'software',
+    'courses',
+    'books',
+    'stationery',
+    'electronics',
+    'hosting_domain',
+    'printing_docs',
+    'coworking',
+    'entertainment',
+    'game',
+    'cinema',
+    'music_subscription',
+    'travel',
+    'hotel',
+    'events_concert',
+    'bar_karaoke',
+    'hobbies',
+    'collectibles',
+    'relationship_family',
+    'parents',
+    'children',
+    'partner_spouse',
+    'dating',
+    'friends',
+    'gifts',
+    'wedding',
+    'birthday',
+    'funeral_support',
+    'charity_help',
+    'finance',
+    'debt_payment',
+    'loan_interest',
+    'bank_fee',
+    'card_fee',
+    'investment',
+    'savings',
+    'insurance',
+    'tax',
+    'emergency_fund',
+    'pet',
+    'pet_food',
+    'vet',
+    'pet_accessories',
+    'pet_spa',
+    'pet_medicine',
+    'unexpected_expense',
+    'lost_money',
+    'unclear_expense',
     'income',
+    'salary',
+    'bonus',
+    'freelance_income',
+    'business_income',
+    'selling_income',
+    'investment_profit',
+    'savings_interest',
+    'gift_income',
+    'refund',
+    'allowance',
+    'side_income',
+    'income_other',
+    'internal_transfer',
+    'cash_withdrawal',
+    'ewallet_topup',
+    'wallet_transfer',
+    'savings_deposit',
+    'savings_withdrawal',
     'other',
   ]);
   const seen = new Set(reservedIds);
@@ -494,6 +609,219 @@ function normalizeExpenseCategories(raw) {
     })
     .filter(Boolean)
     .slice(0, MAX_EXPENSE_CATEGORIES);
+}
+
+function normalizeLoanRecords(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((loan, index) => {
+      if (!loan || typeof loan !== 'object' || Array.isArray(loan)) return null;
+
+      const amount = Math.abs(Number(loan.amount) || 0);
+      if (!Number.isFinite(amount) || amount <= 0) return null;
+
+      const person = String(loan.person ?? loan.name ?? '').trim();
+      if (!person) return null;
+
+      const fallbackDate = getTodayKey();
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(loan.date ?? '').trim())
+        ? String(loan.date).trim()
+        : fallbackDate;
+      const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(
+        String(loan.dueDate ?? '').trim()
+      )
+        ? String(loan.dueDate).trim()
+        : '';
+      const status = loan.status === 'settled' ? 'settled' : 'open';
+      const type = loan.type === 'borrowed' ? 'borrowed' : 'lent';
+      const createdAt = Number.isFinite(Number(loan.createdAt))
+        ? Number(loan.createdAt)
+        : Date.now() - index;
+      const payments = (Array.isArray(loan.payments) ? loan.payments : [])
+        .map((payment, paymentIndex) => {
+          if (!payment || typeof payment !== 'object' || Array.isArray(payment)) {
+            return null;
+          }
+          const paymentAmount = Math.abs(Number(payment.amount) || 0);
+          if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) return null;
+          const paymentDate = /^\d{4}-\d{2}-\d{2}$/.test(
+            String(payment.date ?? '').trim()
+          )
+            ? String(payment.date).trim()
+            : date;
+          const paymentCreatedAt = Number.isFinite(Number(payment.createdAt))
+            ? Number(payment.createdAt)
+            : createdAt + paymentIndex + 1;
+          return {
+            id: String(payment.id ?? `${paymentCreatedAt}-${paymentIndex}`).trim(),
+            amount: Math.round(paymentAmount),
+            date: paymentDate,
+            note: String(payment.note ?? '').trim(),
+            createdAt: paymentCreatedAt,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 100);
+      const paidAmount = payments.reduce(
+        (sum, payment) => sum + Math.abs(Number(payment.amount) || 0),
+        0
+      );
+      const normalizedStatus =
+        status === 'settled' || paidAmount >= amount ? 'settled' : 'open';
+      const settledAt =
+        normalizedStatus === 'settled' && Number.isFinite(Number(loan.settledAt))
+          ? Number(loan.settledAt)
+          : normalizedStatus === 'settled'
+            ? Date.now()
+            : null;
+
+      return {
+        id: String(loan.id ?? `${createdAt}-${index}`).trim(),
+        type,
+        person,
+        amount: Math.round(amount),
+        date,
+        dueDate,
+        note: String(loan.note ?? '').trim(),
+        payments,
+        status: normalizedStatus,
+        createdAt,
+        settledAt,
+        ...(loan.generatedBy ? { generatedBy: String(loan.generatedBy) } : {}),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .slice(0, MAX_LOAN_RECORDS);
+}
+
+function normalizeBudgetRecords(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((budget, index) => {
+      if (!budget || typeof budget !== 'object' || Array.isArray(budget)) {
+        return null;
+      }
+
+      const limit = Math.abs(Number(budget.limit) || 0);
+      if (!Number.isFinite(limit) || limit <= 0) return null;
+
+      const period = ['daily', 'weekly', 'monthly'].includes(budget.period)
+        ? budget.period
+        : 'monthly';
+      const fallbackDate = getTodayKey();
+      const startDate = /^\d{4}-\d{2}-\d{2}$/.test(
+        String(budget.startDate ?? budget.date ?? '').trim()
+      )
+        ? String(budget.startDate ?? budget.date).trim()
+        : fallbackDate;
+      const category = String(budget.category ?? 'other').trim() || 'other';
+      const createdAt = Number.isFinite(Number(budget.createdAt))
+        ? Number(budget.createdAt)
+        : Date.now() - index;
+
+      return {
+        id: String(budget.id ?? `${createdAt}-budget-${index}`).trim(),
+        period,
+        category,
+        limit: Math.round(limit),
+        startDate,
+        note: String(budget.note ?? '').trim(),
+        status: budget.status === 'disabled' ? 'disabled' : 'active',
+        createdAt,
+        updatedAt: Number.isFinite(Number(budget.updatedAt))
+          ? Number(budget.updatedAt)
+          : createdAt,
+        ...(budget.generatedBy ? { generatedBy: String(budget.generatedBy) } : {}),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .slice(0, MAX_BUDGET_RECORDS);
+}
+
+function normalizeMoneyJars(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((jar, index) => {
+      if (!jar || typeof jar !== 'object' || Array.isArray(jar)) return null;
+
+      const label = String(jar.label ?? jar.name ?? '').trim();
+      if (!label) return null;
+
+      const percent = Math.max(0, Math.min(100, Number(jar.percent) || 0));
+      if (!Number.isFinite(percent) || percent <= 0) return null;
+
+      const createdAt = Number.isFinite(Number(jar.createdAt))
+        ? Number(jar.createdAt)
+        : Date.now() - index;
+      const category = String(jar.category ?? '').trim();
+      const priority = ['critical', 'important', 'nice'].includes(jar.priority)
+        ? jar.priority
+        : 'important';
+
+      return {
+        id: String(jar.id ?? `${createdAt}-jar-${index}`).trim(),
+        label,
+        percent: Math.round(percent * 100) / 100,
+        category,
+        priority,
+        note: String(jar.note ?? '').trim(),
+        status: jar.status === 'disabled' ? 'disabled' : 'active',
+        createdAt,
+        updatedAt: Number.isFinite(Number(jar.updatedAt))
+          ? Number(jar.updatedAt)
+          : createdAt,
+        ...(jar.generatedBy ? { generatedBy: String(jar.generatedBy) } : {}),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .slice(0, MAX_MONEY_JARS);
+}
+
+function normalizeAssetSnapshot(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {
+      total: 0,
+      items: [],
+      note: '',
+      updatedAt: 0,
+    };
+  }
+
+  const items = (Array.isArray(raw.items) ? raw.items : [])
+    .map((item, index) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+      const label = String(item.label ?? item.name ?? '').trim();
+      const amount = Math.abs(Number(item.amount) || 0);
+      if (!label || !Number.isFinite(amount) || amount <= 0) return null;
+      return {
+        id: String(item.id ?? `asset-${index}`).trim(),
+        label,
+        amount: Math.round(amount),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 50);
+
+  const itemTotal = items.reduce(
+    (sum, item) => sum + Math.abs(Number(item.amount) || 0),
+    0
+  );
+  const rawTotal = Math.abs(Number(raw.total) || 0);
+  const total = rawTotal > 0 ? rawTotal : itemTotal;
+
+  return {
+    total: Math.round(total),
+    items,
+    note: String(raw.note ?? '').trim(),
+    updatedAt: Number.isFinite(Number(raw.updatedAt)) ? Number(raw.updatedAt) : 0,
+    ...(raw.generatedBy ? { generatedBy: String(raw.generatedBy) } : {}),
+  };
 }
 
 function applyDeathToProfile(profile) {
@@ -763,6 +1091,10 @@ export function createInitialState() {
     inventory: defaultInventoryState(),
     expenses: [],
     expenseCategories: [],
+    loanRecords: [],
+    budgetRecords: [],
+    moneyJars: [],
+    assetSnapshot: normalizeAssetSnapshot(null),
     updatedAt: Date.now(),
   };
 }
@@ -870,6 +1202,10 @@ function migrateParsed(data) {
     inventory: normalizeInventoryState(data.inventory),
     expenses: normalizeExpenseTransactions(data.expenses),
     expenseCategories: normalizeExpenseCategories(data.expenseCategories),
+    loanRecords: normalizeLoanRecords(data.loanRecords),
+    budgetRecords: normalizeBudgetRecords(data.budgetRecords),
+    moneyJars: normalizeMoneyJars(data.moneyJars),
+    assetSnapshot: normalizeAssetSnapshot(data.assetSnapshot),
   };
 }
 
@@ -884,6 +1220,10 @@ function toPersistedPayload(state) {
     inventory: normalizeInventoryState(state.inventory),
     expenses: normalizeExpenseTransactions(state.expenses),
     expenseCategories: normalizeExpenseCategories(state.expenseCategories),
+    loanRecords: normalizeLoanRecords(state.loanRecords),
+    budgetRecords: normalizeBudgetRecords(state.budgetRecords),
+    moneyJars: normalizeMoneyJars(state.moneyJars),
+    assetSnapshot: normalizeAssetSnapshot(state.assetSnapshot),
     fitnessConfig:
       state.fitnessConfig != null
         ? normalizeFitnessConfig(state.fitnessConfig)
