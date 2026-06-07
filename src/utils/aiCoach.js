@@ -348,6 +348,22 @@ function pickExpenseCategoryId(rawId, type, categories) {
   return allowed[0]?.id ?? 'other';
 }
 
+function pickExpenseCandidateCategoryIds(rawIds, type, categories, selectedId) {
+  const allowed = new Set(
+    (Array.isArray(categories) ? categories : [])
+      .filter((cat) => cat?.type === type || cat?.type === 'both')
+      .map((cat) => String(cat.id))
+  );
+  const result = [];
+  for (const rawId of [selectedId, ...(Array.isArray(rawIds) ? rawIds : [])]) {
+    const id = String(rawId ?? '').trim();
+    if (!id || !allowed.has(id) || result.includes(id)) continue;
+    result.push(id);
+    if (result.length >= 3) break;
+  }
+  return result;
+}
+
 function normalizeAiExpenseTransactionsPayload(parsed, params) {
   const rows = Array.isArray(parsed?.transactions) ? parsed.transactions : [];
   const categories = Array.isArray(params?.categories) ? params.categories : [];
@@ -366,10 +382,23 @@ function normalizeAiExpenseTransactionsPayload(parsed, params) {
         .slice(0, 80);
       if (!description) return null;
 
+      const category = pickExpenseCategoryId(row.categoryId, type, categories);
+      const confidenceRaw = Number(row.confidence);
+      const confidence = Number.isFinite(confidenceRaw)
+        ? Math.max(0, Math.min(1, confidenceRaw))
+        : 0.5;
+
       return {
         description,
         amount: type === 'income' ? Math.round(amountAbs) : -Math.round(amountAbs),
-        category: pickExpenseCategoryId(row.categoryId, type, categories),
+        category,
+        confidence,
+        candidateCategoryIds: pickExpenseCandidateCategoryIds(
+          row.candidateCategoryIds,
+          type,
+          categories,
+          category
+        ),
         date: normalizeDateKey(row.date, fallbackDate),
         time: normalizeTimeKey(row.time, fallbackTime),
         note: String(row.note ?? '').trim().slice(0, 160),
@@ -387,7 +416,16 @@ Quy tắc:
 - Hiểu đơn vị tiền Việt: k/nghìn/ngàn = x1000, tr/triệu/m = x1000000.
 - Nếu không nói rõ là thu nhập/lương/nhận tiền thì mặc định là chi tiêu.
 - Chọn categoryId từ danh sách category được cung cấp. Không tự tạo categoryId mới.
-- Nếu không chắc danh mục, dùng "other".
+- Luôn ưu tiên danh mục cụ thể nhất phù hợp ngữ nghĩa thay vì danh mục cha/chung.
+- Ăn sáng/trưa/tối rõ ràng phải chọn breakfast/lunch/dinner; ăn tại nhà hàng chọn restaurant; cà phê/trà sữa chọn coffee_tea.
+- Mua món hàng rõ ràng phải chọn loại hàng cụ thể: áo/quần => clothing, giày/dép => shoes, mỹ phẩm => cosmetics. Chỉ dùng personal_shopping khi không rõ loại hàng.
+- Tên nền tảng/cửa hàng như Shopee không quyết định danh mục; phân loại theo món hàng được mua.
+- Chi cho ba mẹ/con cái/người yêu/bạn bè chọn nhóm quan hệ cụ thể khi câu nói rõ đối tượng.
+- Chuyển tiền giữa ví/tài khoản của chính người dùng là chuyển nội bộ, không phải chi tiêu. Trả nợ/lãi vay/phí ngân hàng chọn đúng nhóm tài chính cụ thể.
+- Ví dụ cá nhân gần đây có độ ưu tiên cao khi nội dung mới có cụm từ/ngữ nghĩa tương tự.
+- confidence là độ chắc chắn từ 0 đến 1. Dưới 0.78 khi còn phân vân đáng kể giữa các danh mục.
+- candidateCategoryIds chứa tối đa 3 danh mục hợp lệ có khả năng nhất, xếp categoryId đã chọn đầu tiên.
+- Nếu không chắc danh mục, vẫn chọn phương án tốt nhất và giảm confidence; chỉ dùng "other" khi thực sự không có danh mục phù hợp.
 - Nếu không có ngày/giờ trong câu, dùng ngày giờ mặc định từ tin user.
 - Trả về DUY NHẤT JSON hợp lệ, không markdown, không giải thích.
 
@@ -399,7 +437,9 @@ Schema:
       "type": "expense",
       "description": "Bữa tối",
       "amount": 100000,
-      "categoryId": "food",
+      "categoryId": "dinner",
+      "confidence": 0.96,
+      "candidateCategoryIds": ["dinner", "food", "restaurant"],
       "date": "YYYY-MM-DD",
       "time": "HH:mm",
       "note": "ghi chú ngắn nếu có"
@@ -411,6 +451,7 @@ export async function fetchExpenseTransactionsFromAI(params) {
   const {
     text,
     categories,
+    recentExamples,
     dateKey = getTodayKey(),
     timeKey = '12:00',
   } = params ?? {};
@@ -430,11 +471,25 @@ export async function fetchExpenseTransactionsFromAI(params) {
       return `- ${cat.id}: ${cat.label} (${type})`;
     })
     .join('\n');
+  const exampleLines = (Array.isArray(recentExamples) ? recentExamples : [])
+    .slice(0, 20)
+    .map((example) => {
+      const description = String(example?.description ?? '').trim().slice(0, 80);
+      const categoryId = String(example?.categoryId ?? '').trim();
+      const sourceText = String(example?.sourceText ?? '').trim().slice(0, 140);
+      if (!description || !categoryId) return '';
+      return `- "${sourceText || description}" => ${categoryId} (mô tả: ${description})`;
+    })
+    .filter(Boolean)
+    .join('\n');
 
   const userLine = [
     `Ngày mặc định: ${dateKey}. Giờ mặc định: ${timeKey}.`,
     'Danh mục được phép:',
     categoryLines || '- other: Khác (both)',
+    '',
+    'Ví dụ cá nhân gần đây đã được người dùng chọn/xác nhận:',
+    exampleLines || '- chưa có',
     '',
     `Nội dung người dùng: ${userText}`,
   ].join('\n');
@@ -457,7 +512,7 @@ export async function fetchExpenseTransactionsFromAI(params) {
           { role: 'user', content: userLine },
         ],
         temperature: 0.1,
-        max_tokens: 900,
+        max_tokens: 1400,
         response_format: { type: 'json_object' },
       }),
     });
@@ -528,7 +583,12 @@ function normalizeAiLoanRecordsPayload(parsed, params) {
     .map((row) => {
       if (!row || typeof row !== 'object') return null;
       const action = row.action === 'payment' ? 'payment' : 'create';
-      const type = row.type === 'borrowed' ? 'borrowed' : 'lent';
+      const type =
+        row.type === 'borrowed'
+          ? 'borrowed'
+          : row.type === 'held'
+            ? 'held'
+            : 'lent';
       const paymentType =
         row.paymentType === 'paid'
           ? 'paid'
@@ -550,6 +610,7 @@ function normalizeAiLoanRecordsPayload(parsed, params) {
         person,
         amount: Math.round(amount),
         date: normalizeDateKey(row.date, fallbackDate),
+        dateUnknown: Boolean(row.dateUnknown),
         dueDate: row.dueDate ? normalizeDateKey(row.dueDate, '') : '',
         note: String(row.note ?? '').trim().slice(0, 180),
       };
@@ -568,18 +629,22 @@ Hành động:
 Phân loại khoản mới:
 - "lent": người dùng cho người khác vay, người khác đang nợ người dùng.
 - "borrowed": người dùng vay/mượn tiền của người khác, người dùng đang nợ người đó.
+- "held": người khác giữ/cầm tiền hộ người dùng. Ví dụ "người yêu giữ hộ tôi 2tr", "gửi mẹ cầm hộ 5tr".
 
 Phân loại thanh toán:
 - "received": người khác trả tiền cho người dùng. Ví dụ "Nam trả tôi 500k", "Nam trả 500k" khi Nam là người nợ.
 - "paid": người dùng trả tiền cho người khác. Ví dụ "trả Lan 500k", "mình trả Lan 500k".
+- Với khoản "held", khi người dùng lấy/rút/nhận lại tiền từ người giữ hộ thì paymentType là "received".
 
 Quy tắc:
-- Chỉ tạo record khi nội dung có ý vay/mượn/cho vay/nợ/trả sau.
+- Chỉ tạo record khi nội dung có ý vay/mượn/cho vay/nợ/trả sau/giữ hộ/cầm hộ tiền.
 - Nếu nội dung là trả bớt/trả nợ/trả tiền một phần thì action phải là "payment", không tạo khoản vay mới.
 - "cho mẹ 1tr", "tặng bạn 500k", "đi chơi với người yêu 300k" không phải vay nợ nếu không nói vay/nợ.
 - Hiểu đơn vị tiền Việt: k/nghìn/ngàn = x1000, tr/triệu/m = x1000000.
 - Nếu có nhiều người/khoản, tách thành nhiều record.
+- person chỉ là tên người, bỏ các chữ vai trò/hành động như "anh", "a", "vay", "nợ", "trả", "giữ hộ".
 - Nếu không có ngày, dùng ngày mặc định.
+- Nếu người dùng nói "ngày xưa", "lâu rồi", "trước đây" hoặc không nhớ ngày/tháng/năm thì dateUnknown là true. Các trường hợp khác là false.
 - Nếu có hạn trả rõ ràng thì điền dueDate, không có thì để "".
 - Trả về DUY NHẤT JSON hợp lệ, không markdown, không giải thích.
 
@@ -594,6 +659,7 @@ Schema:
       "person": "Nam",
       "amount": 500000,
       "date": "YYYY-MM-DD",
+      "dateUnknown": false,
       "dueDate": "",
       "note": "ghi chú ngắn nếu có"
     },
@@ -604,6 +670,7 @@ Schema:
       "person": "Nam",
       "amount": 500000,
       "date": "YYYY-MM-DD",
+      "dateUnknown": false,
       "dueDate": "",
       "note": "Nam trả đợt 1"
     }
@@ -624,7 +691,12 @@ export async function fetchLoanRecordsFromAI(params) {
 
   const openLoanLines = (Array.isArray(openLoans) ? openLoans : [])
     .map((loan) => {
-      const typeLabel = loan.type === 'borrowed' ? 'borrowed' : 'lent';
+      const typeLabel =
+        loan.type === 'borrowed'
+          ? 'borrowed'
+          : loan.type === 'held'
+            ? 'held'
+            : 'lent';
       return `- ${typeLabel}: ${loan.person}, còn ${loan.remainingAmount}, gốc ${loan.amount}`;
     })
     .join('\n');
@@ -1093,6 +1165,8 @@ function normalizeAiAssetSnapshotPayload(parsed) {
         id: `asset-${index}`,
         label,
         amount: Math.round(amount),
+        location: String(item.location ?? item.where ?? '').trim().slice(0, 120),
+        note: String(item.note ?? item.detail ?? '').trim().slice(0, 220),
       };
     })
     .filter(Boolean)
@@ -1190,6 +1264,8 @@ function normalizeOptionalAiAssetSnapshotPayload(parsed) {
         id: `asset-current-${index}`,
         label,
         amount: Math.round(amount),
+        location: String(item.location ?? item.where ?? '').trim().slice(0, 120),
+        note: String(item.note ?? item.detail ?? '').trim().slice(0, 220),
       };
     })
     .filter(Boolean)
@@ -1219,6 +1295,9 @@ Nhiệm vụ: đọc câu tiếng Việt và trích tổng tài sản hiện t�
 Quy tắc:
 - Tài sản gồm tiền mặt, ngân hàng, ví điện tử, tiết kiệm, đầu tư, vàng, tài sản có thể quy đổi.
 - Nếu người dùng đưa các khoản con, cộng thành total nếu không nói tổng.
+- Tách tài sản thành các mục cụ thể. Không gộp nhiều nơi hoặc nhiều loại vào một mục chung nếu câu có đủ thông tin.
+- location là nơi tài sản đang nằm, ví dụ tên ngân hàng, ví, sàn coin, người đang giữ hoặc địa điểm.
+- note là thông tin bổ sung như loại coin, kỳ hạn tiết kiệm, số lượng vàng hoặc mô tả tài sản.
 - Không trừ nợ trừ khi người dùng nói rõ đây là "tài sản ròng" hoặc đã trừ nợ.
 - Hiểu đơn vị tiền Việt: k/nghìn/ngàn = x1000, tr/triệu/m = x1000000, tỷ = x1000000000.
 - Trả về DUY NHẤT JSON hợp lệ, không markdown.
@@ -1228,8 +1307,8 @@ Schema:
   "message": "tóm tắt ngắn",
   "total": 120000000,
   "items": [
-    { "label": "Ngân hàng", "amount": 50000000 },
-    { "label": "Đầu tư", "amount": 70000000 }
+    { "label": "Tiền gửi", "amount": 50000000, "location": "Vietcombank", "note": "Tài khoản tiết kiệm" },
+    { "label": "Đầu tư coin", "amount": 70000000, "location": "Binance", "note": "BTC và ETH" }
   ],
   "note": "ghi chú ngắn"
 }`;

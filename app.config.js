@@ -13,6 +13,12 @@ export default ({ config }) => ({
   icon: './assets/icon.png',
   userInterfaceStyle: 'light',
   newArchEnabled: true,
+  updates: {
+    url: 'https://u.expo.dev/03ae813e-aeef-434d-8ef4-d75f72c18a0f',
+  },
+  runtimeVersion: {
+    policy: 'appVersion',
+  },
   splash: {
     image: './assets/splash-icon.png',
     resizeMode: 'contain',

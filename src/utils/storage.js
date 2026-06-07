@@ -447,6 +447,21 @@ function normalizeExpenseTransactions(raw) {
         category: String(tx.category ?? 'other').trim() || 'other',
         dateTime,
         note: String(tx.note ?? '').trim(),
+        ...(tx.generatedBy ? { generatedBy: String(tx.generatedBy) } : {}),
+        ...(tx.aiSourceText
+          ? { aiSourceText: String(tx.aiSourceText).trim().slice(0, 240) }
+          : {}),
+        ...(tx.aiCategoryConfirmed
+          ? { aiCategoryConfirmed: true }
+          : {}),
+        ...(Number.isFinite(Number(tx.aiConfidence))
+          ? {
+              aiConfidence: Math.max(
+                0,
+                Math.min(1, Number(tx.aiConfidence))
+              ),
+            }
+          : {}),
         createdAt: Number.isFinite(Number(tx.createdAt))
           ? Number(tx.createdAt)
           : Number.isNaN(parsedTime)
@@ -635,7 +650,12 @@ function normalizeLoanRecords(raw) {
         ? String(loan.dueDate).trim()
         : '';
       const status = loan.status === 'settled' ? 'settled' : 'open';
-      const type = loan.type === 'borrowed' ? 'borrowed' : 'lent';
+      const type =
+        loan.type === 'borrowed'
+          ? 'borrowed'
+          : loan.type === 'held'
+            ? 'held'
+            : 'lent';
       const createdAt = Number.isFinite(Number(loan.createdAt))
         ? Number(loan.createdAt)
         : Date.now() - index;
@@ -683,6 +703,7 @@ function normalizeLoanRecords(raw) {
         person,
         amount: Math.round(amount),
         date,
+        dateUnknown: Boolean(loan.dateUnknown),
         dueDate,
         note: String(loan.note ?? '').trim(),
         payments,
@@ -804,6 +825,8 @@ function normalizeAssetSnapshot(raw) {
         id: String(item.id ?? `asset-${index}`).trim(),
         label,
         amount: Math.round(amount),
+        location: String(item.location ?? item.where ?? '').trim().slice(0, 120),
+        note: String(item.note ?? item.detail ?? '').trim().slice(0, 240),
       };
     })
     .filter(Boolean)

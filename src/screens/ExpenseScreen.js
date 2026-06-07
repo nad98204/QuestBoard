@@ -174,6 +174,14 @@ const FILTERS = [
   { id: 'income', label: 'Thu nhập' },
 ];
 
+const AI_CATEGORY_CONFIRM_THRESHOLD = 0.78;
+
+const LOAN_TYPES = [
+  { id: 'lent', label: 'Người khác nợ mình' },
+  { id: 'borrowed', label: 'Mình đang nợ' },
+  { id: 'held', label: 'Người khác giữ/cầm hộ' },
+];
+
 function pad2(n) {
   return String(n).padStart(2, '0');
 }
@@ -409,6 +417,7 @@ function getTransactionDate(tx) {
 }
 
 function getDayLabel(dateKey) {
+  if (dateKey === 'old-loans') return 'Vay ngày xưa';
   const today = getTodayKey();
   if (dateKey === today) return 'Hôm nay';
   if (dateKey === addDaysToKey(today, -1)) return 'Hôm qua';
@@ -445,6 +454,91 @@ function isLoanSettled(loan) {
   return loan?.status === 'settled' || getLoanRemainingAmount(loan) <= 0;
 }
 
+function loanDateTimeIso(dateKey, fallbackMs = Date.now()) {
+  const date = parseDateKey(dateKey);
+  if (!date) return new Date(fallbackMs).toISOString();
+  date.setHours(12, 0, 0, 0);
+  return date.toISOString();
+}
+
+function buildLoanCashFlowTransactions(loans) {
+  const rows = [];
+  for (const loan of Array.isArray(loans) ? loans : []) {
+    if (!loan || typeof loan !== 'object') continue;
+    const amount = Math.abs(Number(loan.amount) || 0);
+    if (!amount) continue;
+    const borrowed = loan.type === 'borrowed';
+    const held = loan.type === 'held';
+    const person = normalizeText(loan.person, 'người khác');
+    rows.push({
+      id: `loan-flow-${loan.id}-principal`,
+      description: borrowed
+        ? `Vay ${person}`
+        : held
+          ? `Gửi ${person} giữ hộ`
+          : `Cho ${person} vay`,
+      amount: borrowed ? amount : -amount,
+      category: borrowed ? 'income_other' : 'debt_payment',
+      dateTime: loanDateTimeIso(loan.date, Number(loan.createdAt) || Date.now()),
+      note: normalizeText(loan.note, 'Tự động từ sổ vay nợ'),
+      createdAt: Number(loan.createdAt) || 0,
+      source: 'loan',
+      loanId: loan.id,
+      dateUnknown: Boolean(loan.dateUnknown),
+      readonly: true,
+    });
+
+    const payments = Array.isArray(loan.payments) ? loan.payments : [];
+    for (const payment of payments) {
+      const paymentAmount = Math.abs(Number(payment.amount) || 0);
+      if (!paymentAmount) continue;
+      rows.push({
+        id: `loan-flow-${loan.id}-payment-${payment.id}`,
+        description: borrowed
+          ? `Trả nợ ${person}`
+          : held
+            ? `Lấy lại từ ${person}`
+            : `${person} trả nợ`,
+        amount: borrowed ? -paymentAmount : paymentAmount,
+        category: borrowed ? 'debt_payment' : 'income_other',
+        dateTime: loanDateTimeIso(
+          payment.date,
+          Number(payment.createdAt) || Number(loan.createdAt) || Date.now()
+        ),
+        note: normalizeText(payment.note, 'Tự động từ sổ vay nợ'),
+        createdAt: Number(payment.createdAt) || Number(loan.createdAt) || 0,
+        source: 'loan',
+        loanId: loan.id,
+        dateUnknown: false,
+        readonly: true,
+      });
+    }
+  }
+  return rows;
+}
+
+function buildLoanEditDraft(loan) {
+  return {
+    type:
+      loan?.type === 'borrowed' ? 'borrowed' : loan?.type === 'held' ? 'held' : 'lent',
+    person: normalizeText(loan?.person),
+    amount: String(Math.abs(Number(loan?.amount) || 0)),
+    date: normalizeText(loan?.date, getTodayKey()),
+    dateUnknown: Boolean(loan?.dateUnknown),
+    dueDate: normalizeText(loan?.dueDate),
+    note: normalizeText(loan?.note),
+  };
+}
+
+function buildAssetEditDraft(item) {
+  return {
+    label: normalizeText(item?.label),
+    amount: String(Math.abs(Number(item?.amount) || 0)),
+    location: normalizeText(item?.location),
+    note: normalizeText(item?.note),
+  };
+}
+
 function buildInitialDraft() {
   const now = new Date();
   return {
@@ -479,6 +573,26 @@ function buildDraftFromTransaction(tx, categories) {
 function normalizeText(value, fallback = '') {
   const text = String(value ?? '').trim();
   return text || fallback;
+}
+
+function normalizeLoanPersonKey(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/đ/g, 'd')
+    .replace(/\b(anh|a|chi|c|em|ban|nguoi|yeu|ny|no|minh|toi|vay|vat|muon|giu|ho|cam|tien)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function loanPersonMatches(a, b) {
+  const left = normalizeLoanPersonKey(a);
+  const right = normalizeLoanPersonKey(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  return left.includes(right) || right.includes(left);
 }
 
 function parseInlineMoneyAmount(raw) {
@@ -572,6 +686,8 @@ export default function ExpenseScreen({
   const [aiBusy, setAiBusy] = useState(false);
   const [aiStatus, setAiStatus] = useState('');
   const [aiError, setAiError] = useState('');
+  const [pendingAiTransactions, setPendingAiTransactions] = useState([]);
+  const [expandedAiCategoryIndex, setExpandedAiCategoryIndex] = useState(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [editCategoryOpen, setEditCategoryOpen] = useState(false);
@@ -579,6 +695,9 @@ export default function ExpenseScreen({
   const [loanAiBusy, setLoanAiBusy] = useState(false);
   const [loanAiStatus, setLoanAiStatus] = useState('');
   const [loanAiError, setLoanAiError] = useState('');
+  const [editingLoanId, setEditingLoanId] = useState(null);
+  const [loanEditDraft, setLoanEditDraft] = useState(() => buildLoanEditDraft(null));
+  const [loanEditError, setLoanEditError] = useState('');
   const [budgetAiText, setBudgetAiText] = useState('');
   const [budgetAiBusy, setBudgetAiBusy] = useState(false);
   const [budgetAiStatus, setBudgetAiStatus] = useState('');
@@ -591,10 +710,15 @@ export default function ExpenseScreen({
   const [assetAiBusy, setAssetAiBusy] = useState(false);
   const [assetAiStatus, setAssetAiStatus] = useState('');
   const [assetAiError, setAssetAiError] = useState('');
+  const [editingAssetId, setEditingAssetId] = useState(null);
+  const [assetEditDraft, setAssetEditDraft] = useState(() => buildAssetEditDraft(null));
+  const [assetEditError, setAssetEditError] = useState('');
   const [assetGoalAiText, setAssetGoalAiText] = useState('');
   const [assetGoalAiBusy, setAssetGoalAiBusy] = useState(false);
   const [assetGoalAiStatus, setAssetGoalAiStatus] = useState('');
   const [assetGoalAiError, setAssetGoalAiError] = useState('');
+  const [reportMode, setReportMode] = useState('month');
+  const [transactionTimeMode, setTransactionTimeMode] = useState('month');
   const [activeLedgerTab, setActiveLedgerTab] = useState('transactions');
   const canAdd = filter === 'expense' || filter === 'income';
   const isEditing = editingId != null;
@@ -631,6 +755,29 @@ export default function ExpenseScreen({
     () => (Array.isArray(transactions) ? transactions : []),
     [transactions]
   );
+  const recentCategoryExamples = useMemo(() => {
+    const seen = new Set();
+    const examples = [];
+    for (const tx of allTransactions) {
+      if (tx?.source === 'loan') continue;
+      if (!tx?.aiCategoryConfirmed && tx?.generatedBy === 'openai_expense_note_v1') {
+        continue;
+      }
+      const description = normalizeText(tx?.description);
+      const categoryId = normalizeText(tx?.category);
+      if (!description || !categoryId) continue;
+      const key = `${description.toLowerCase()}|${categoryId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      examples.push({
+        description,
+        categoryId,
+        sourceText: normalizeText(tx?.aiSourceText, description),
+      });
+      if (examples.length >= 20) break;
+    }
+    return examples;
+  }, [allTransactions]);
   const allLoanRecords = useMemo(
     () => (Array.isArray(loanRecords) ? loanRecords : []),
     [loanRecords]
@@ -647,13 +794,29 @@ export default function ExpenseScreen({
     () => (Array.isArray(assetGoals) ? assetGoals : []),
     [assetGoals]
   );
+  const loanCashFlowTransactions = useMemo(
+    () => buildLoanCashFlowTransactions(allLoanRecords),
+    [allLoanRecords]
+  );
+  const ledgerTransactions = useMemo(
+    () => [...allTransactions, ...loanCashFlowTransactions],
+    [allTransactions, loanCashFlowTransactions]
+  );
+  const loanAssetReceivables = useMemo(
+    () =>
+      allLoanRecords.reduce((sum, loan) => {
+        if (loan.type === 'borrowed') return sum;
+        return sum + getLoanRemainingAmount(loan);
+      }, 0),
+    [allLoanRecords]
+  );
   const recordedAssetTotal = useMemo(
     () =>
-      allTransactions.reduce(
+      ledgerTransactions.reduce(
         (sum, tx) => sum + (Number(tx.amount) || 0),
-        0
+        loanAssetReceivables
       ),
-    [allTransactions]
+    [ledgerTransactions, loanAssetReceivables]
   );
   const currentAssetSnapshot = useMemo(() => {
     const snapshot =
@@ -671,6 +834,9 @@ export default function ExpenseScreen({
         id: String(item?.id ?? `asset-${index}`),
         label: normalizeText(item?.label, 'Tài sản ngoài app'),
         amount: Math.max(0, Number(item?.amount) || 0),
+        location: normalizeText(item?.location),
+        note: normalizeText(item?.note),
+        external: true,
       })),
     ].filter((item) => item.amount !== 0 || item.label);
     return {
@@ -717,24 +883,57 @@ export default function ExpenseScreen({
       ),
     [allTransactions, visibleMonth]
   );
+  const monthLedgerTransactions = useMemo(
+    () =>
+      ledgerTransactions.filter(
+        (tx) =>
+          !tx.dateUnknown && getMonthKey(getTransactionDate(tx)) === visibleMonth
+      ),
+    [ledgerTransactions, visibleMonth]
+  );
+  const oldLoanTransactions = useMemo(
+    () => loanCashFlowTransactions.filter((tx) => tx.dateUnknown),
+    [loanCashFlowTransactions]
+  );
+  const oldLoanNet = useMemo(
+    () =>
+      allLoanRecords.reduce((sum, loan) => {
+        if (!loan.dateUnknown) return sum;
+        const remaining = getLoanRemainingAmount(loan);
+        return sum + (loan.type === 'borrowed' ? remaining : -remaining);
+      }, 0),
+    [allLoanRecords]
+  );
 
   const totals = useMemo(
-    () =>
-      monthTransactions.reduce(
+    () => {
+      const base = monthTransactions.reduce(
         (acc, tx) => {
           const amount = Number(tx.amount) || 0;
           if (amount > 0) acc.income += amount;
           if (amount < 0) acc.expense += Math.abs(amount);
-          acc.balance += amount;
+          acc.transactionBalance += amount;
           return acc;
         },
-        { income: 0, expense: 0, balance: 0 }
-      ),
-    [monthTransactions]
+        { income: 0, expense: 0, transactionBalance: 0 }
+      );
+      const loanNet = monthLedgerTransactions.reduce((sum, tx) => {
+        if (tx.source !== 'loan') return sum;
+        return sum + (Number(tx.amount) || 0);
+      }, 0);
+      return {
+        ...base,
+        loanNet,
+        balance: base.transactionBalance + loanNet,
+      };
+    },
+    [monthLedgerTransactions, monthTransactions]
   );
 
   const visibleTransactions = useMemo(() => {
-    const list = monthTransactions.filter((tx) => {
+    const source =
+      transactionTimeMode === 'old-loans' ? oldLoanTransactions : monthLedgerTransactions;
+    const list = source.filter((tx) => {
       const amount = Number(tx.amount) || 0;
       if (filter === 'income') return amount > 0;
       if (filter === 'expense') return amount < 0;
@@ -743,13 +942,13 @@ export default function ExpenseScreen({
     return [...list].sort(
       (a, b) => getTransactionDate(b).getTime() - getTransactionDate(a).getTime()
     );
-  }, [filter, monthTransactions]);
+  }, [filter, monthLedgerTransactions, oldLoanTransactions, transactionTimeMode]);
 
   const groupedTransactions = useMemo(() => {
     const groups = new Map();
     for (const tx of visibleTransactions) {
       const date = getTransactionDate(tx);
-      const key = dateKeyFromDate(date);
+      const key = tx.dateUnknown ? 'old-loans' : dateKeyFromDate(date);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(tx);
     }
@@ -771,10 +970,11 @@ export default function ExpenseScreen({
           const amount = getLoanRemainingAmount(loan);
           if (amount <= 0) return acc;
           if (loan.type === 'borrowed') acc.borrowed += amount;
+          else if (loan.type === 'held') acc.held += amount;
           else acc.lent += amount;
           return acc;
         },
-        { lent: 0, borrowed: 0 }
+        { lent: 0, held: 0, borrowed: 0 }
       ),
     [allLoanRecords]
   );
@@ -855,6 +1055,62 @@ export default function ExpenseScreen({
     [activeJarRows]
   );
 
+  const reportData = useMemo(() => {
+    const [yearRaw] = String(visibleMonth).split('-').map(Number);
+    const year = yearRaw || new Date().getFullYear();
+    const rowsInPeriod = allTransactions.filter((tx) => {
+      const date = getTransactionDate(tx);
+      if (reportMode === 'year') return date.getFullYear() === year;
+      return getMonthKey(date) === visibleMonth;
+    });
+
+    const income = rowsInPeriod.reduce((sum, tx) => {
+      const amount = Number(tx.amount) || 0;
+      return amount > 0 ? sum + amount : sum;
+    }, 0);
+    const expenseRows = rowsInPeriod.filter((tx) => (Number(tx.amount) || 0) < 0);
+    const expense = expenseRows.reduce(
+      (sum, tx) => sum + Math.abs(Number(tx.amount) || 0),
+      0
+    );
+    const byCategory = new Map();
+    for (const tx of expenseRows) {
+      const key = tx.category || 'other';
+      const current = byCategory.get(key) ?? { amount: 0, count: 0, items: [] };
+      current.amount += Math.abs(Number(tx.amount) || 0);
+      current.count += 1;
+      current.items.push(tx);
+      byCategory.set(key, current);
+    }
+    const categoryRows = Array.from(byCategory.entries())
+      .map(([category, value]) => ({
+        category,
+        categoryInfo: categoryById(category, allCategories),
+        amount: value.amount,
+        count: value.count,
+        items: value.items.sort(
+          (a, b) => getTransactionDate(b).getTime() - getTransactionDate(a).getTime()
+        ),
+        percent: expense > 0 ? value.amount / expense : 0,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+    const divisor =
+      reportMode === 'year'
+        ? 12
+        : new Date(year, Number(visibleMonth.slice(5, 7)) || 1, 0).getDate();
+
+    return {
+      label: reportMode === 'year' ? `Năm ${year}` : monthLabel(visibleMonth),
+      income,
+      expense,
+      balance: income - expense,
+      count: expenseRows.length,
+      categoryRows,
+      average: divisor > 0 ? Math.round(expense / divisor) : 0,
+      averageLabel: reportMode === 'year' ? 'TB / tháng' : 'TB / ngày',
+    };
+  }, [allTransactions, allCategories, reportMode, visibleMonth]);
+
   const updateDraft = (key, value) => {
     setError('');
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -871,6 +1127,12 @@ export default function ExpenseScreen({
     setEditDraft(buildInitialDraft());
   };
 
+  const closeLoanEditModal = () => {
+    setEditingLoanId(null);
+    setLoanEditError('');
+    setLoanEditDraft(buildLoanEditDraft(null));
+  };
+
   const handleFilterChange = (nextFilter) => {
     setError('');
     setCategoryOpen(false);
@@ -880,6 +1142,16 @@ export default function ExpenseScreen({
       if (nextCategories.some((cat) => cat.id === prev.category)) return prev;
       return { ...prev, category: nextCategories[0]?.id ?? 'other' };
     });
+  };
+
+  const canNavigateHeader =
+    (activeLedgerTab === 'transactions' && transactionTimeMode === 'month') ||
+    activeLedgerTab === 'reports';
+  const handleNavigateHeader = (delta) => {
+    if (!canNavigateHeader) return;
+    const monthDelta =
+      activeLedgerTab === 'reports' && reportMode === 'year' ? delta * 12 : delta;
+    setVisibleMonth((m) => addMonthsToKey(m, monthDelta));
   };
 
   const handleAddCategory = () => {
@@ -944,6 +1216,7 @@ export default function ExpenseScreen({
           label: cat.label,
           type: cat.type,
         })),
+        recentExamples: recentCategoryExamples,
         dateKey: dateKeyFromDate(now),
         timeKey: timeKeyFromDate(now),
       });
@@ -963,21 +1236,66 @@ export default function ExpenseScreen({
           note: normalizeText(tx.note),
           createdAt: createdAt + index,
           generatedBy: 'openai_expense_note_v1',
+          aiSourceText: text,
+          aiConfidence: tx.confidence,
+          aiCategoryConfirmed: false,
+          candidateCategoryIds: tx.candidateCategoryIds,
         };
       });
 
-      onTransactionsChange([...nextTransactions, ...allTransactions]);
-      setVisibleMonth(getMonthKey(getTransactionDate(nextTransactions[0])));
-      setAiText('');
-      setAiStatus(
-        result.message ||
-          `Đã ghi ${nextTransactions.length} giao dịch từ nội dung AI.`
+      const needsConfirmation = nextTransactions.some(
+        (tx) => Number(tx.aiConfidence) < AI_CATEGORY_CONFIRM_THRESHOLD
       );
+      if (needsConfirmation) {
+        setPendingAiTransactions(nextTransactions);
+        setExpandedAiCategoryIndex(null);
+        setAiStatus('AI chưa chắc danh mục. Chọn lại rồi xác nhận để AI học cho lần sau.');
+      } else {
+        const readyTransactions = nextTransactions.map(
+          ({ candidateCategoryIds, ...tx }) => tx
+        );
+        onTransactionsChange([...readyTransactions, ...allTransactions]);
+        setVisibleMonth(getMonthKey(getTransactionDate(nextTransactions[0])));
+        setAiText('');
+        setAiStatus(
+          result.message ||
+            `Đã ghi ${nextTransactions.length} giao dịch từ nội dung AI.`
+        );
+      }
     } catch (e) {
       setAiError(e?.message ?? 'AI chưa ghi được giao dịch. Thử lại sau.');
     } finally {
       setAiBusy(false);
     }
+  };
+
+  const closeAiCategoryConfirm = () => {
+    setPendingAiTransactions([]);
+    setExpandedAiCategoryIndex(null);
+  };
+
+  const updatePendingAiCategory = (index, categoryId) => {
+    setPendingAiTransactions((rows) =>
+      rows.map((row, rowIndex) =>
+        rowIndex === index
+          ? { ...row, category: categoryId, aiCategoryConfirmed: true }
+          : row
+      )
+    );
+    setExpandedAiCategoryIndex(null);
+  };
+
+  const handleConfirmAiCategories = () => {
+    if (pendingAiTransactions.length === 0) return;
+    const confirmed = pendingAiTransactions.map(({ candidateCategoryIds, ...tx }) => ({
+      ...tx,
+      aiCategoryConfirmed: true,
+    }));
+    onTransactionsChange([...confirmed, ...allTransactions]);
+    setVisibleMonth(getMonthKey(getTransactionDate(confirmed[0])));
+    setAiText('');
+    setAiStatus(`Đã xác nhận và ghi ${confirmed.length} giao dịch. AI sẽ học từ lựa chọn này.`);
+    closeAiCategoryConfirm();
   };
 
   const handleLoanAiNote = async () => {
@@ -1014,20 +1332,19 @@ export default function ExpenseScreen({
         if (loan.action === 'payment') {
           const expectedType =
             loan.paymentType === 'received'
-              ? 'lent'
+              ? loan.type === 'held'
+                ? 'held'
+                : 'lent'
               : loan.paymentType === 'paid'
                 ? 'borrowed'
                 : loan.type;
-          const personKey = loan.person.trim().toLowerCase();
           const candidates = nextLoans.filter((item) => {
-            const samePerson =
-              String(item.person ?? '').trim().toLowerCase() === personKey;
+            const samePerson = loanPersonMatches(item.person, loan.person);
             const sameType = item.type === expectedType;
             return samePerson && sameType && getLoanRemainingAmount(item) > 0;
           });
           const fallbackCandidates = nextLoans.filter((item) => {
-            const samePerson =
-              String(item.person ?? '').trim().toLowerCase() === personKey;
+            const samePerson = loanPersonMatches(item.person, loan.person);
             return samePerson && getLoanRemainingAmount(item) > 0;
           });
           const target = candidates[0] ?? fallbackCandidates[0];
@@ -1070,6 +1387,9 @@ export default function ExpenseScreen({
             person: loan.person,
             amount: loan.amount,
             date: loan.date,
+            dateUnknown:
+              Boolean(loan.dateUnknown) ||
+              /(ngày xưa|lâu rồi|trước đây|không nhớ)/i.test(text),
             dueDate: loan.dueDate,
             note: normalizeText(loan.note),
             payments: [],
@@ -1329,6 +1649,85 @@ export default function ExpenseScreen({
     }
   };
 
+  const closeAssetEditModal = () => {
+    setEditingAssetId(null);
+    setAssetEditDraft(buildAssetEditDraft(null));
+    setAssetEditError('');
+  };
+
+  const handleEditAsset = (item) => {
+    setEditingAssetId(item.id);
+    setAssetEditDraft(buildAssetEditDraft(item));
+    setAssetEditError('');
+  };
+
+  const updateAssetEditDraft = (key, value) => {
+    setAssetEditError('');
+    setAssetEditDraft((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveAssetEdit = () => {
+    if (!editingAssetId) return;
+    const label = normalizeText(assetEditDraft.label);
+    const amount = parseAmount(assetEditDraft.amount);
+    if (!label) {
+      setAssetEditError('Nhập tên tài sản.');
+      return;
+    }
+    if (amount == null || amount <= 0) {
+      setAssetEditError('Giá trị tài sản phải lớn hơn 0.');
+      return;
+    }
+    const currentItems = Array.isArray(assetSnapshot?.items) ? assetSnapshot.items : [];
+    const items = currentItems.map((item) =>
+      String(item?.id) === String(editingAssetId)
+        ? {
+            ...item,
+            label,
+            amount: Math.round(Math.abs(amount)),
+            location: normalizeText(assetEditDraft.location),
+            note: normalizeText(assetEditDraft.note),
+          }
+        : item
+    );
+    onAssetSnapshotChange?.({
+      ...(assetSnapshot && typeof assetSnapshot === 'object' ? assetSnapshot : {}),
+      total: items.reduce((sum, item) => sum + Math.abs(Number(item?.amount) || 0), 0),
+      items,
+      updatedAt: Date.now(),
+    });
+    closeAssetEditModal();
+  };
+
+  const handleDeleteAsset = (id) => {
+    Alert.alert(
+      'Xóa tài sản ngoài app?',
+      'Mục tài sản này sẽ bị xóa khỏi tổng tài sản ngoài app.',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Xóa',
+          style: 'destructive',
+          onPress: () => {
+            const currentItems = Array.isArray(assetSnapshot?.items)
+              ? assetSnapshot.items
+              : [];
+            const items = currentItems.filter((item) => String(item?.id) !== String(id));
+            onAssetSnapshotChange?.({
+              ...(assetSnapshot && typeof assetSnapshot === 'object' ? assetSnapshot : {}),
+              total: items.reduce(
+                (sum, item) => sum + Math.abs(Number(item?.amount) || 0),
+                0
+              ),
+              items,
+              updatedAt: Date.now(),
+            });
+          },
+        },
+      ]
+    );
+  };
+
   const handleAssetGoalAiNote = async () => {
     const text = normalizeText(assetGoalAiText);
     if (!text) {
@@ -1505,7 +1904,12 @@ export default function ExpenseScreen({
                 id: `${now}-payment-full-${Math.random().toString(36).slice(2, 8)}`,
                 amount: remaining,
                 date: dateKeyFromDate(new Date()),
-                note: 'Trả hết',
+                note:
+                  loan.type === 'borrowed'
+                    ? 'Trả hết'
+                    : loan.type === 'held'
+                      ? 'Lấy hết'
+                      : 'Thu hết',
                 createdAt: now,
               };
               return {
@@ -1521,6 +1925,63 @@ export default function ExpenseScreen({
           : loan
       )
     );
+  };
+
+  const handleEditLoan = (loan) => {
+    setEditingLoanId(loan.id);
+    setLoanEditDraft(buildLoanEditDraft(loan));
+    setLoanEditError('');
+  };
+
+  const updateLoanEditDraft = (key, value) => {
+    setLoanEditError('');
+    setLoanEditDraft((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveLoanEdit = () => {
+    if (!editingLoanId) return;
+    const person = normalizeText(loanEditDraft.person);
+    const amount = parseAmount(loanEditDraft.amount);
+    const date = parseDateKey(loanEditDraft.date);
+    const dueDate = loanEditDraft.dueDate ? parseDateKey(loanEditDraft.dueDate) : null;
+
+    if (!person) {
+      setLoanEditError('Nhập tên người liên quan.');
+      return;
+    }
+    if (amount == null || amount <= 0) {
+      setLoanEditError('Số tiền phải lớn hơn 0.');
+      return;
+    }
+    if (!loanEditDraft.dateUnknown && !date) {
+      setLoanEditError('Ngày vay nợ cần đúng dạng YYYY-MM-DD.');
+      return;
+    }
+    if (loanEditDraft.dueDate && !dueDate) {
+      setLoanEditError('Hạn trả cần đúng dạng YYYY-MM-DD hoặc để trống.');
+      return;
+    }
+
+    const next = allLoanRecords.map((loan) => {
+      if (loan.id !== editingLoanId) return loan;
+      const paidAmount = getLoanPaidAmount(loan);
+      const settled = paidAmount >= Math.abs(amount);
+      return {
+        ...loan,
+        type: loanEditDraft.type,
+        person,
+        amount: Math.round(Math.abs(amount)),
+        date: loanEditDraft.dateUnknown ? loan.date || getTodayKey() : loanEditDraft.date,
+        dateUnknown: Boolean(loanEditDraft.dateUnknown),
+        dueDate: loanEditDraft.dueDate,
+        note: normalizeText(loanEditDraft.note),
+        status: settled ? 'settled' : 'open',
+        settledAt: settled ? loan.settledAt || Date.now() : null,
+        updatedAt: Date.now(),
+      };
+    });
+    onLoanRecordsChange?.(next);
+    closeLoanEditModal();
   };
 
   const handleDeleteLoan = (id) => {
@@ -1653,6 +2114,8 @@ export default function ExpenseScreen({
             category: editDraft.category,
             dateTime: dt.toISOString(),
             note: normalizeText(editDraft.note),
+            aiSourceText: normalizeText(tx.aiSourceText, description),
+            aiCategoryConfirmed: true,
             updatedAt: Date.now(),
           }
         : tx
@@ -1695,12 +2158,12 @@ export default function ExpenseScreen({
           <View style={styles.header}>
             <View style={styles.monthNav}>
               <Pressable
-                onPress={() => setVisibleMonth((m) => addMonthsToKey(m, -1))}
+                onPress={() => handleNavigateHeader(-1)}
                 style={[
                   styles.navBtn,
-                  activeLedgerTab !== 'transactions' && styles.navBtnDisabled,
+                  !canNavigateHeader && styles.navBtnDisabled,
                 ]}
-                disabled={activeLedgerTab !== 'transactions'}
+                disabled={!canNavigateHeader}
               >
                 <Text style={styles.navBtnText}>{'<'}</Text>
               </Pressable>
@@ -1708,23 +2171,27 @@ export default function ExpenseScreen({
                 <Text style={styles.title}>Note chi phí</Text>
                 <Text style={styles.monthTitle}>
                   {activeLedgerTab === 'transactions'
-                    ? monthLabel(visibleMonth)
+                    ? transactionTimeMode === 'old-loans'
+                      ? 'Vay ngày xưa'
+                      : monthLabel(visibleMonth)
                     : activeLedgerTab === 'loans'
                       ? 'Sổ vay nợ riêng'
                       : activeLedgerTab === 'budgets'
                         ? 'Theo dõi ngân sách'
-                        : activeLedgerTab === 'assets'
-                          ? 'Tài sản cá nhân'
-                          : 'Chiến lược chia hũ'}
+                        : activeLedgerTab === 'reports'
+                          ? reportData.label
+                          : activeLedgerTab === 'assets'
+                            ? 'Tài sản cá nhân'
+                            : 'Chiến lược chia hũ'}
                 </Text>
               </View>
               <Pressable
-                onPress={() => setVisibleMonth((m) => addMonthsToKey(m, 1))}
+                onPress={() => handleNavigateHeader(1)}
                 style={[
                   styles.navBtn,
-                  activeLedgerTab !== 'transactions' && styles.navBtnDisabled,
+                  !canNavigateHeader && styles.navBtnDisabled,
                 ]}
-                disabled={activeLedgerTab !== 'transactions'}
+                disabled={!canNavigateHeader}
               >
                 <Text style={styles.navBtnText}>{'>'}</Text>
               </Pressable>
@@ -1745,6 +2212,22 @@ export default function ExpenseScreen({
                   ]}
                 >
                   Giao dịch
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.ledgerTabBtn,
+                  activeLedgerTab === 'reports' && styles.ledgerTabActive,
+                ]}
+                onPress={() => setActiveLedgerTab('reports')}
+              >
+                <Text
+                  style={[
+                    styles.ledgerTabText,
+                    activeLedgerTab === 'reports' && styles.ledgerTabTextActive,
+                  ]}
+                >
+                  Báo cáo
                 </Text>
               </Pressable>
               <Pressable
@@ -1829,6 +2312,17 @@ export default function ExpenseScreen({
                     </Text>
                   </View>
                   <View style={styles.totalTile}>
+                    <Text style={styles.totalLabel}>Vay tháng này</Text>
+                    <Text
+                      style={[
+                        styles.totalValue,
+                        totals.loanNet >= 0 ? styles.incomeText : styles.expenseText,
+                      ]}
+                    >
+                      {formatSignedAmount(totals.loanNet)}
+                    </Text>
+                  </View>
+                  <View style={styles.totalTile}>
                     <Text style={styles.totalLabel}>Còn lại</Text>
                     <Text
                       style={[
@@ -1839,6 +2333,41 @@ export default function ExpenseScreen({
                       {formatSignedAmount(totals.balance)}
                     </Text>
                   </View>
+                </View>
+
+                <View style={[styles.filterRow, styles.timeModeRow]}>
+                  <Pressable
+                    onPress={() => setTransactionTimeMode('month')}
+                    style={[
+                      styles.filterBtn,
+                      transactionTimeMode === 'month' && styles.filterBtnActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterText,
+                        transactionTimeMode === 'month' && styles.filterTextActive,
+                      ]}
+                    >
+                      Tháng này
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setTransactionTimeMode('old-loans')}
+                    style={[
+                      styles.filterBtn,
+                      transactionTimeMode === 'old-loans' && styles.filterBtnActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterText,
+                        transactionTimeMode === 'old-loans' && styles.filterTextActive,
+                      ]}
+                    >
+                      Vay ngày xưa · {formatSignedAmount(oldLoanNet)}
+                    </Text>
+                  </Pressable>
                 </View>
 
                 <View style={styles.filterRow}>
@@ -1866,9 +2395,9 @@ export default function ExpenseScreen({
             ) : activeLedgerTab === 'loans' ? (
               <View style={styles.loanTotalRow}>
                 <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Người khác nợ mình</Text>
+                  <Text style={styles.totalLabel}>Nợ / giữ hộ mình</Text>
                   <Text style={[styles.totalValue, styles.incomeText]}>
-                    {formatCurrency(loanTotals.lent)}
+                    {formatCurrency(loanTotals.lent + loanTotals.held)}
                   </Text>
                 </View>
                 <View style={styles.loanTotalTile}>
@@ -1890,6 +2419,42 @@ export default function ExpenseScreen({
                   <Text style={styles.totalLabel}>Vượt ngân sách</Text>
                   <Text style={[styles.totalValue, styles.expenseText]}>
                     {budgetRows.filter((budget) => budget.spent > budget.limit).length} mục
+                  </Text>
+                </View>
+              </View>
+            ) : activeLedgerTab === 'reports' ? (
+              <View style={styles.totalGrid}>
+                <View style={styles.totalTile}>
+                  <Text style={styles.totalLabel}>Tổng chi</Text>
+                  <Text style={[styles.totalValue, styles.expenseText]}>
+                    {formatCurrency(reportData.expense)}
+                  </Text>
+                </View>
+                <View style={styles.totalTile}>
+                  <Text style={styles.totalLabel}>Số danh mục</Text>
+                  <Text style={[styles.totalValue, styles.incomeText]}>
+                    {reportData.categoryRows.length} mục
+                  </Text>
+                </View>
+                <View style={styles.totalTile}>
+                  <Text style={styles.totalLabel}>{reportData.averageLabel}</Text>
+                  <Text style={[styles.totalValue, styles.expenseText]}>
+                    {formatCurrency(reportData.average)}
+                  </Text>
+                </View>
+              </View>
+            ) : activeLedgerTab === 'assets' ? (
+              <View style={styles.loanTotalRow}>
+                <View style={styles.loanTotalTile}>
+                  <Text style={styles.totalLabel}>Tổng tài sản</Text>
+                  <Text style={[styles.totalValue, styles.incomeText]}>
+                    {formatCurrency(currentAssetSnapshot.total)}
+                  </Text>
+                </View>
+                <View style={styles.loanTotalTile}>
+                  <Text style={styles.totalLabel}>Ngoài app</Text>
+                  <Text style={[styles.totalValue, styles.incomeText]}>
+                    {formatCurrency(currentAssetSnapshot.externalTotal)}
                   </Text>
                 </View>
               </View>
@@ -1916,7 +2481,7 @@ export default function ExpenseScreen({
             )}
           </View>
 
-          {activeLedgerTab === 'transactions' ? (
+          {activeLedgerTab === 'transactions' && transactionTimeMode === 'month' ? (
           <View style={styles.aiCard}>
             <View style={styles.aiHeaderRow}>
               <View style={styles.aiAvatar}>
@@ -1965,7 +2530,7 @@ export default function ExpenseScreen({
               <View style={styles.aiHeaderCopy}>
                 <Text style={styles.aiTitle}>Sổ vay nợ riêng</Text>
                 <Text style={styles.aiSubtitle}>
-                  Chỉ ghi khoản cho vay hoặc mình đi vay, không tính vào chi tiêu.
+                  Ghi vay nợ, trả nợ, hoặc người khác giữ/cầm tiền hộ mình.
                 </Text>
               </View>
             </View>
@@ -1977,7 +2542,7 @@ export default function ExpenseScreen({
                 setLoanAiError('');
                 setLoanAiStatus('');
               }}
-              placeholder="cho Nam vay 500k, mượn Lan 1tr"
+              placeholder="cho Nam vay 500k, vay Lan ngày xưa 1tr, người yêu giữ hộ 2tr"
               placeholderTextColor="#6f6a7d"
               style={[styles.input, styles.aiInput]}
               multiline
@@ -2008,6 +2573,7 @@ export default function ExpenseScreen({
                 sortedLoanRecords.map((loan) => {
                   const settled = isLoanSettled(loan);
                   const borrowed = loan.type === 'borrowed';
+                  const held = loan.type === 'held';
                   const paidAmount = getLoanPaidAmount(loan);
                   const remainingAmount = getLoanRemainingAmount(loan);
                   const payments = Array.isArray(loan.payments) ? loan.payments : [];
@@ -2021,7 +2587,9 @@ export default function ExpenseScreen({
                           <Text style={styles.txTitle} numberOfLines={1}>
                             {borrowed
                               ? `Mình vay ${loan.person}`
-                              : `${loan.person} nợ mình`}
+                              : held
+                                ? `${loan.person} giữ hộ mình`
+                                : `${loan.person} nợ mình`}
                           </Text>
                           <Text
                             style={[
@@ -2040,7 +2608,8 @@ export default function ExpenseScreen({
                         </View>
                         <Text style={styles.txMeta} numberOfLines={1}>
                           Gốc {formatCurrency(Number(loan.amount) || 0)} · đã trả{' '}
-                          {formatCurrency(paidAmount)} · {formatDateKeyLabel(loan.date)}
+                          {formatCurrency(paidAmount)} ·{' '}
+                          {loan.dateUnknown ? 'vay ngày xưa' : formatDateKeyLabel(loan.date)}
                           {loan.dueDate
                             ? ` · hạn ${formatDateKeyLabel(loan.dueDate)}`
                             : ''}
@@ -2067,12 +2636,20 @@ export default function ExpenseScreen({
                         ) : null}
                       </View>
                       <View style={styles.loanActions}>
+                        <Pressable
+                          style={styles.editBtn}
+                          onPress={() => handleEditLoan(loan)}
+                        >
+                          <Text style={styles.editText}>Sửa</Text>
+                        </Pressable>
                         {!settled ? (
                           <Pressable
                             style={styles.loanSettleBtn}
                             onPress={() => handleSettleLoan(loan.id)}
                           >
-                            <Text style={styles.loanSettleText}>Trả hết</Text>
+                            <Text style={styles.loanSettleText}>
+                              {borrowed ? 'Trả hết' : held ? 'Lấy hết' : 'Thu hết'}
+                            </Text>
                           </Pressable>
                         ) : null}
                         <Pressable
@@ -2206,6 +2783,124 @@ export default function ExpenseScreen({
           </View>
           ) : null}
 
+          {activeLedgerTab === 'reports' ? (
+          <View style={styles.reportCard}>
+            <View style={styles.aiHeaderRow}>
+              <View style={styles.reportAvatar}>
+                <Text style={styles.reportAvatarText}>%</Text>
+              </View>
+              <View style={styles.aiHeaderCopy}>
+                <Text style={styles.aiTitle}>Báo cáo chi tiêu</Text>
+                <Text style={styles.aiSubtitle}>
+                  Xem bạn hay chi vào đâu theo từng tháng hoặc cả năm.
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.filterRow}>
+              {[
+                { id: 'month', label: 'Theo tháng' },
+                { id: 'year', label: 'Theo năm' },
+              ].map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setReportMode(item.id)}
+                  style={[
+                    styles.filterBtn,
+                    reportMode === item.id && styles.filterBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterText,
+                      reportMode === item.id && styles.filterTextActive,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.reportSummaryBox}>
+              <Text style={styles.txMeta}>{reportData.label}</Text>
+              <Text style={styles.reportBigValue}>
+                {formatCurrency(reportData.expense)}
+              </Text>
+              <Text style={styles.txMeta}>
+                {reportData.count} giao dịch chi · thu {formatCurrency(reportData.income)} · còn{' '}
+                {formatSignedAmount(reportData.balance)}
+              </Text>
+            </View>
+
+            <View style={styles.budgetList}>
+              {reportData.categoryRows.length === 0 ? (
+                <Text style={styles.emptyText}>Chưa có chi tiêu trong kỳ này.</Text>
+              ) : (
+                reportData.categoryRows.map((row, index) => {
+                  const percent = Math.round(row.percent * 100);
+                  return (
+                    <View key={row.category} style={styles.reportRow}>
+                      <View style={styles.budgetTopLine}>
+                        <View style={styles.budgetTitleWrap}>
+                          <Text
+                            style={[
+                              styles.categoryIcon,
+                              { color: row.categoryInfo.color },
+                            ]}
+                          >
+                            {row.categoryInfo.icon}
+                          </Text>
+                          <View style={styles.budgetNameWrap}>
+                            <Text style={styles.txTitle} numberOfLines={1}>
+                              #{index + 1} {row.categoryInfo.label}
+                            </Text>
+                            <Text style={styles.txMeta} numberOfLines={1}>
+                              {row.count} lần · {percent}% tổng chi
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.txAmount, styles.expenseText]}>
+                          {formatCurrency(row.amount)}
+                        </Text>
+                      </View>
+                      <View style={styles.budgetProgressTrack}>
+                        <View
+                          style={[
+                            styles.reportProgressFill,
+                            { width: `${Math.min(100, percent)}%` },
+                          ]}
+                        />
+                      </View>
+                      <View style={styles.reportItemList}>
+                        {row.items.map((tx) => {
+                          const txDate = getTransactionDate(tx);
+                          return (
+                            <View key={tx.id} style={styles.reportItemRow}>
+                              <View style={styles.reportItemTextWrap}>
+                                <Text style={styles.reportItemTitle} numberOfLines={1}>
+                                  {tx.description}
+                                </Text>
+                                <Text style={styles.txMeta} numberOfLines={1}>
+                                  {formatDateKeyLabel(dateKeyFromDate(txDate))} ·{' '}
+                                  {timeKeyFromDate(txDate)}
+                                </Text>
+                              </View>
+                              <Text style={[styles.reportItemAmount, styles.expenseText]}>
+                                {formatCurrency(Math.abs(Number(tx.amount) || 0))}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          </View>
+          ) : null}
+
           {activeLedgerTab === 'assets' ? (
           <View style={styles.assetCard}>
             <View style={styles.aiHeaderRow}>
@@ -2215,7 +2910,7 @@ export default function ExpenseScreen({
               <View style={styles.aiHeaderCopy}>
                 <Text style={styles.aiTitle}>Tổng tài sản cá nhân</Text>
                 <Text style={styles.aiSubtitle}>
-                  Tự tính từ giao dịch trong app, cộng thêm tài sản bạn note ngoài hệ thống.
+                  Tự tính từ thu chi trong app, không trừ vay nợ, cộng thêm tài sản ngoài app.
                 </Text>
               </View>
             </View>
@@ -2238,14 +2933,45 @@ export default function ExpenseScreen({
 
               {currentAssetSnapshot.items.length > 0 ? (
                 <View style={styles.assetItemList}>
-                  {currentAssetSnapshot.items.slice(0, 8).map((item) => (
+                  <Text style={styles.assetDetailHeading}>Chi tiết tài sản đang có</Text>
+                  {currentAssetSnapshot.items.map((item) => (
                     <View key={item.id} style={styles.assetItemRow}>
-                      <Text style={styles.assetItemLabel} numberOfLines={1}>
-                        {item.label}
-                      </Text>
-                      <Text style={styles.assetItemAmount}>
-                        {formatCurrency(item.amount)}
-                      </Text>
+                      <View style={styles.assetItemCopy}>
+                        <Text style={styles.assetItemLabel}>
+                          {item.label}
+                        </Text>
+                        <Text style={styles.assetItemSource}>
+                          {item.external
+                            ? item.location
+                              ? `Nơi lưu: ${item.location}`
+                              : 'Tài sản ngoài app · chưa ghi nơi lưu'
+                            : 'Tự tính từ thu chi và sổ vay nợ trong app'}
+                        </Text>
+                        {item.note ? (
+                          <Text style={styles.assetItemNote}>{item.note}</Text>
+                        ) : null}
+                      </View>
+                      <View style={styles.assetItemRight}>
+                        <Text style={styles.assetItemAmount}>
+                          {formatCurrency(item.amount)}
+                        </Text>
+                        {item.external ? (
+                          <View style={styles.assetItemActions}>
+                            <Pressable
+                              style={styles.editBtn}
+                              onPress={() => handleEditAsset(item)}
+                            >
+                              <Text style={styles.editText}>Sửa</Text>
+                            </Pressable>
+                            <Pressable
+                              style={styles.deleteBtn}
+                              onPress={() => handleDeleteAsset(item.id)}
+                            >
+                              <Text style={styles.deleteText}>×</Text>
+                            </Pressable>
+                          </View>
+                        ) : null}
+                      </View>
                     </View>
                   ))}
                 </View>
@@ -2690,7 +3416,11 @@ export default function ExpenseScreen({
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Danh sách giao dịch</Text>
             {groupedTransactions.length === 0 ? (
-              <Text style={styles.emptyText}>Chưa có giao dịch phù hợp trong tháng này.</Text>
+            <Text style={styles.emptyText}>
+              {transactionTimeMode === 'old-loans'
+                ? 'Chưa có khoản vay ngày xưa.'
+                : 'Chưa có giao dịch phù hợp trong tháng này.'}
+            </Text>
             ) : (
               groupedTransactions.map(([dateKey, items]) => (
                 <View key={dateKey} style={styles.dayGroup}>
@@ -2700,6 +3430,7 @@ export default function ExpenseScreen({
                     const amount = Number(tx.amount) || 0;
                     const txDate = getTransactionDate(tx);
                     const active = editingId === tx.id;
+                    const loanAuto = tx.source === 'loan';
                     return (
                       <View
                         key={tx.id}
@@ -2730,7 +3461,8 @@ export default function ExpenseScreen({
                             </Text>
                           </View>
                           <Text style={styles.txMeta} numberOfLines={1}>
-                            {cat.label} · {timeKeyFromDate(txDate)}
+                            {loanAuto ? 'Vay nợ tự động' : cat.label} ·{' '}
+                            {timeKeyFromDate(txDate)}
                           </Text>
                           {tx.note ? (
                             <Text style={styles.txNote} numberOfLines={2}>
@@ -2739,20 +3471,38 @@ export default function ExpenseScreen({
                           ) : null}
                         </View>
                         <View style={styles.txActions}>
-                          <Pressable
-                            onPress={() => handleEdit(tx)}
-                            hitSlop={8}
-                            style={styles.editBtn}
-                          >
-                            <Text style={styles.editText}>Sửa</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => handleDelete(tx.id)}
-                            hitSlop={10}
-                            style={styles.deleteBtn}
-                          >
-                            <Text style={styles.deleteText}>×</Text>
-                          </Pressable>
+                          {loanAuto ? (
+                            <Pressable
+                              onPress={() => {
+                                const loan = allLoanRecords.find(
+                                  (item) => item.id === tx.loanId
+                                );
+                                if (loan) handleEditLoan(loan);
+                                else setActiveLedgerTab('loans');
+                              }}
+                              hitSlop={8}
+                              style={styles.editBtn}
+                            >
+                              <Text style={styles.editText}>Sửa</Text>
+                            </Pressable>
+                          ) : (
+                            <>
+                              <Pressable
+                                onPress={() => handleEdit(tx)}
+                                hitSlop={8}
+                                style={styles.editBtn}
+                              >
+                                <Text style={styles.editText}>Sửa</Text>
+                              </Pressable>
+                              <Pressable
+                                onPress={() => handleDelete(tx.id)}
+                                hitSlop={10}
+                                style={styles.deleteBtn}
+                              >
+                                <Text style={styles.deleteText}>×</Text>
+                              </Pressable>
+                            </>
+                          )}
                         </View>
                       </View>
                     );
@@ -2764,6 +3514,319 @@ export default function ExpenseScreen({
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal
+        visible={editingAssetId != null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAssetEditModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Sửa tài sản ngoài app</Text>
+              <Pressable onPress={closeAssetEditModal} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseText}>×</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <TextInput
+                value={assetEditDraft.label}
+                onChangeText={(v) => updateAssetEditDraft('label', v)}
+                placeholder="Tên tài sản, ví dụ: Đầu tư coin"
+                placeholderTextColor="#6f6a7d"
+                style={styles.input}
+              />
+              <TextInput
+                value={assetEditDraft.amount}
+                onChangeText={(v) => updateAssetEditDraft('amount', v)}
+                placeholder="Giá trị tài sản"
+                placeholderTextColor="#6f6a7d"
+                keyboardType="numeric"
+                style={styles.input}
+              />
+              <TextInput
+                value={assetEditDraft.location}
+                onChangeText={(v) => updateAssetEditDraft('location', v)}
+                placeholder="Nơi lưu, ví dụ: Binance, Vietcombank, két sắt"
+                placeholderTextColor="#6f6a7d"
+                style={styles.input}
+              />
+              <TextInput
+                value={assetEditDraft.note}
+                onChangeText={(v) => updateAssetEditDraft('note', v)}
+                placeholder="Chi tiết / ghi chú, ví dụ: BTC và ETH"
+                placeholderTextColor="#6f6a7d"
+                style={[styles.input, styles.noteInput]}
+                multiline
+              />
+              {assetEditError ? <Text style={styles.errorText}>{assetEditError}</Text> : null}
+              <View style={styles.modalActions}>
+                <Pressable style={styles.modalCancelBtn} onPress={closeAssetEditModal}>
+                  <Text style={styles.modalCancelText}>Hủy</Text>
+                </Pressable>
+                <Pressable style={styles.modalSaveBtn} onPress={handleSaveAssetEdit}>
+                  <Text style={styles.addBtnText}>Lưu tài sản</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+      <Modal
+        visible={pendingAiTransactions.length > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAiCategoryConfirm}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.aiConfirmTitleWrap}>
+                <Text style={styles.modalTitle}>Xác nhận danh mục AI</Text>
+                <Text style={styles.aiConfirmSubtitle}>
+                  Chọn đúng danh mục để AI học cho lần sau.
+                </Text>
+              </View>
+              <Pressable onPress={closeAiCategoryConfirm} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseText}>×</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {pendingAiTransactions.map((tx, index) => {
+                const selected = categoryById(tx.category, allCategories);
+                const mode = Number(tx.amount) >= 0 ? 'income' : 'expense';
+                const allowedCategories = categoriesForMode(mode, allCategories);
+                const suggestedIds = Array.from(
+                  new Set([tx.category, ...(tx.candidateCategoryIds ?? [])])
+                ).slice(0, 3);
+                const shownCategories =
+                  expandedAiCategoryIndex === index
+                    ? allowedCategories
+                    : suggestedIds.map((id) => categoryById(id, allCategories));
+                return (
+                  <View key={tx.id} style={styles.aiConfirmRow}>
+                    <View style={styles.txTopLine}>
+                      <Text style={styles.txTitle} numberOfLines={2}>
+                        {tx.description}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.txAmount,
+                          Number(tx.amount) >= 0 ? styles.incomeText : styles.expenseText,
+                        ]}
+                      >
+                        {formatSignedAmount(Number(tx.amount) || 0)}
+                      </Text>
+                    </View>
+                    <Text style={styles.aiConfirmMeta}>
+                      AI chọn: {selected.label} · chắc chắn{' '}
+                      {Math.round((Number(tx.aiConfidence) || 0) * 100)}%
+                    </Text>
+                    <View style={styles.optionWrap}>
+                      {shownCategories.map((cat) => {
+                        const active = cat.id === tx.category;
+                        return (
+                          <Pressable
+                            key={cat.id}
+                            onPress={() => updatePendingAiCategory(index, cat.id)}
+                            style={[
+                              styles.categoryBtn,
+                              active && {
+                                borderColor: cat.color,
+                                backgroundColor: '#171923',
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.categoryIcon, { color: cat.color }]}>
+                              {cat.icon}
+                            </Text>
+                            <Text
+                              style={[styles.optionText, active && styles.optionTextActive]}
+                            >
+                              {cat.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    <Pressable
+                      style={styles.aiShowAllBtn}
+                      onPress={() =>
+                        setExpandedAiCategoryIndex((current) =>
+                          current === index ? null : index
+                        )
+                      }
+                    >
+                      <Text style={styles.aiShowAllText}>
+                        {expandedAiCategoryIndex === index
+                          ? 'Thu gọn danh mục'
+                          : 'Mở tất cả danh mục'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+              <View style={styles.modalActions}>
+                <Pressable style={styles.modalCancelBtn} onPress={closeAiCategoryConfirm}>
+                  <Text style={styles.modalCancelText}>Hủy</Text>
+                </Pressable>
+                <Pressable style={styles.modalSaveBtn} onPress={handleConfirmAiCategories}>
+                  <Text style={styles.addBtnText}>Xác nhận và lưu</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+      <Modal
+        visible={editingLoanId != null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeLoanEditModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Sửa khoản vay nợ</Text>
+              <Pressable onPress={closeLoanEditModal} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseText}>×</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.fieldLabel}>Loại khoản</Text>
+              <View style={styles.optionWrap}>
+                {LOAN_TYPES.map((item) => {
+                  const active = loanEditDraft.type === item.id;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => updateLoanEditDraft('type', item.id)}
+                      style={[styles.categoryBtn, active && styles.loanTypeBtnActive]}
+                    >
+                      <Text style={[styles.optionText, active && styles.optionTextActive]}>
+                        {item.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <TextInput
+                value={loanEditDraft.person}
+                onChangeText={(v) => updateLoanEditDraft('person', v)}
+                placeholder="Tên người liên quan"
+                placeholderTextColor="#6f6a7d"
+                style={styles.input}
+              />
+              <TextInput
+                value={loanEditDraft.amount}
+                onChangeText={(v) => updateLoanEditDraft('amount', v)}
+                placeholder="Số tiền gốc"
+                placeholderTextColor="#6f6a7d"
+                keyboardType="numeric"
+                style={styles.input}
+              />
+
+              <View style={styles.filterRow}>
+                <Pressable
+                  onPress={() => updateLoanEditDraft('dateUnknown', false)}
+                  style={[
+                    styles.filterBtn,
+                    !loanEditDraft.dateUnknown && styles.filterBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterText,
+                      !loanEditDraft.dateUnknown && styles.filterTextActive,
+                    ]}
+                  >
+                    Có ngày cụ thể
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => updateLoanEditDraft('dateUnknown', true)}
+                  style={[
+                    styles.filterBtn,
+                    loanEditDraft.dateUnknown && styles.filterBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterText,
+                      loanEditDraft.dateUnknown && styles.filterTextActive,
+                    ]}
+                  >
+                    Vay ngày xưa
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.dateRow}>
+                <TextInput
+                  value={loanEditDraft.date}
+                  onChangeText={(v) => updateLoanEditDraft('date', v)}
+                  placeholder="Ngày vay: YYYY-MM-DD"
+                  placeholderTextColor="#6f6a7d"
+                  editable={!loanEditDraft.dateUnknown}
+                  style={[
+                    styles.input,
+                    styles.dateInput,
+                    loanEditDraft.dateUnknown && styles.disabledInput,
+                  ]}
+                />
+                <TextInput
+                  value={loanEditDraft.dueDate}
+                  onChangeText={(v) => updateLoanEditDraft('dueDate', v)}
+                  placeholder="Hạn trả (tùy chọn)"
+                  placeholderTextColor="#6f6a7d"
+                  style={[styles.input, styles.dateInput]}
+                />
+              </View>
+
+              <TextInput
+                value={loanEditDraft.note}
+                onChangeText={(v) => updateLoanEditDraft('note', v)}
+                placeholder="Nội dung / ghi chú"
+                placeholderTextColor="#6f6a7d"
+                style={[styles.input, styles.noteInput]}
+                multiline
+              />
+
+              {loanEditError ? <Text style={styles.errorText}>{loanEditError}</Text> : null}
+              <View style={styles.modalActions}>
+                <Pressable style={styles.modalCancelBtn} onPress={closeLoanEditModal}>
+                  <Text style={styles.modalCancelText}>Hủy</Text>
+                </Pressable>
+                <Pressable style={styles.modalSaveBtn} onPress={handleSaveLoanEdit}>
+                  <Text style={styles.addBtnText}>Lưu khoản vay nợ</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
       <Modal
         visible={isEditing}
         transparent
@@ -2996,11 +4059,13 @@ const styles = StyleSheet.create({
   },
   totalGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 12,
   },
   totalTile: {
     flex: 1,
+    minWidth: 120,
     minHeight: 70,
     borderRadius: 8,
     borderWidth: 1,
@@ -3059,6 +4124,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
+  timeModeRow: {
+    marginBottom: 8,
+  },
   filterBtn: {
     flex: 1,
     minHeight: 34,
@@ -3109,6 +4177,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#171005',
     borderWidth: 1,
     borderColor: '#4a300b',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  reportCard: {
+    backgroundColor: '#0e1118',
+    borderWidth: 1,
+    borderColor: '#334155',
     borderRadius: 12,
     padding: 14,
     marginBottom: 12,
@@ -3178,6 +4254,21 @@ const styles = StyleSheet.create({
   budgetAvatarText: {
     color: '#facc15',
     fontSize: 11,
+    fontWeight: '900',
+  },
+  reportAvatar: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#38bdf8',
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+  },
+  reportAvatarText: {
+    color: '#7dd3fc',
+    fontSize: 16,
     fontWeight: '900',
   },
   jarAvatar: {
@@ -3255,25 +4346,61 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   assetItemList: {
-    gap: 6,
+    gap: 8,
     marginBottom: 8,
+  },
+  assetDetailHeading: {
+    color: '#67e8f9',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    marginBottom: 2,
   },
   assetItemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
     gap: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#164e52',
+    backgroundColor: '#0a1c1f',
+    padding: 10,
   },
-  assetItemLabel: {
+  assetItemCopy: {
     flex: 1,
     minWidth: 0,
-    color: '#d1d5db',
-    fontSize: 12,
-    fontWeight: '700',
+  },
+  assetItemLabel: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  assetItemSource: {
+    color: '#8db7ba',
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 3,
+  },
+  assetItemNote: {
+    color: '#cbd5e1',
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 3,
+  },
+  assetItemRight: {
+    alignItems: 'flex-end',
+    gap: 6,
   },
   assetItemAmount: {
-    color: '#ffffff',
+    color: '#67e8f9',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '900',
+  },
+  assetItemActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   assetInput: {
     minHeight: 64,
@@ -3449,6 +4576,58 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
+  reportSummaryBox: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    backgroundColor: '#111827',
+    padding: 10,
+    marginTop: 12,
+  },
+  reportBigValue: {
+    color: '#fb7185',
+    fontSize: 20,
+    fontWeight: '900',
+    marginVertical: 4,
+  },
+  reportRow: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#273244',
+    backgroundColor: '#101622',
+    padding: 10,
+  },
+  reportProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#38bdf8',
+  },
+  reportItemList: {
+    borderTopWidth: 1,
+    borderTopColor: '#273244',
+    marginTop: 10,
+    paddingTop: 8,
+    gap: 8,
+  },
+  reportItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  reportItemTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reportItemTitle: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  reportItemAmount: {
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
   jarSummaryBox: {
     borderRadius: 8,
     borderWidth: 1,
@@ -3566,9 +4745,12 @@ const styles = StyleSheet.create({
   },
   loanActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     gap: 4,
     marginLeft: 6,
+    maxWidth: 120,
   },
   loanSettleBtn: {
     minHeight: 34,
@@ -3584,6 +4766,13 @@ const styles = StyleSheet.create({
     color: '#f0abfc',
     fontSize: 11,
     fontWeight: '900',
+  },
+  loanTypeBtnActive: {
+    borderColor: '#e879f9',
+    backgroundColor: '#25112b',
+  },
+  disabledInput: {
+    opacity: 0.42,
   },
   paymentList: {
     marginTop: 6,
@@ -3650,6 +4839,46 @@ const styles = StyleSheet.create({
     minWidth: 0,
     color: '#f5c842',
     fontSize: 16,
+    fontWeight: '900',
+  },
+  aiConfirmTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 10,
+  },
+  aiConfirmSubtitle: {
+    color: '#9ca3af',
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  aiConfirmRow: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#252542',
+    backgroundColor: '#101018',
+    padding: 10,
+    marginBottom: 12,
+  },
+  aiConfirmMeta: {
+    color: '#a0a0c0',
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  aiShowAllBtn: {
+    alignSelf: 'flex-start',
+    minHeight: 30,
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2a2a44',
+    paddingHorizontal: 10,
+  },
+  aiShowAllText: {
+    color: '#f5c842',
+    fontSize: 11,
     fontWeight: '900',
   },
   modalCloseBtn: {
