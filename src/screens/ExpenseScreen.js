@@ -647,6 +647,15 @@ function getDefaultJarTrackingMode(jar, categoryIds) {
   return categoryIds.length > 0 ? 'categories' : 'manual';
 }
 
+function buildBudgetEditDraft(budget) {
+  return {
+    limit: String(Math.max(0, Number(budget?.limit) || 0)),
+    period: budget?.period === 'daily' || budget?.period === 'weekly' ? budget.period : 'monthly',
+    category: normalizeText(budget?.category, 'food'),
+    note: normalizeText(budget?.note),
+  };
+}
+
 function buildJarEditDraft(jar) {
   const categoryIds = getDefaultJarCategoryIds(jar);
   return {
@@ -785,6 +794,10 @@ export default function ExpenseScreen({
   const [editingLoanId, setEditingLoanId] = useState(null);
   const [loanEditDraft, setLoanEditDraft] = useState(() => buildLoanEditDraft(null));
   const [loanEditError, setLoanEditError] = useState('');
+  const [editingBudgetId, setEditingBudgetId] = useState(null);
+  const [budgetEditDraft, setBudgetEditDraft] = useState({ limit: '', period: 'monthly', category: 'food', note: '' });
+  const [budgetEditError, setBudgetEditError] = useState('');
+  const [budgetEditCategoryOpen, setBudgetEditCategoryOpen] = useState(false);
   const [budgetAiText, setBudgetAiText] = useState('');
   const [budgetAiBusy, setBudgetAiBusy] = useState(false);
   const [budgetAiStatus, setBudgetAiStatus] = useState('');
@@ -1745,6 +1758,65 @@ export default function ExpenseScreen({
         },
       ]
     );
+  };
+
+  const handleEditBudget = (budget) => {
+    setBudgetEditDraft(buildBudgetEditDraft(budget));
+    setBudgetEditError('');
+    setBudgetEditCategoryOpen(false);
+    setEditingBudgetId(budget.id);
+  };
+
+  const closeBudgetEditModal = () => {
+    setEditingBudgetId(null);
+    setBudgetEditError('');
+    setBudgetEditCategoryOpen(false);
+  };
+
+  const updateBudgetEditDraft = (key, value) => {
+    setBudgetEditDraft((prev) => ({ ...prev, [key]: value }));
+    setBudgetEditError('');
+  };
+
+  const handleSaveBudgetEdit = () => {
+    if (!editingBudgetId) return;
+    const limit = parseAmount(budgetEditDraft.limit);
+    if (!limit || limit <= 0) {
+      setBudgetEditError('Nhập số tiền giới hạn hợp lệ.');
+      return;
+    }
+    const category = normalizeText(budgetEditDraft.category);
+    if (!category) {
+      setBudgetEditError('Chọn danh mục cho ngân sách.');
+      return;
+    }
+    // Check duplicate: same period + category but different id
+    const duplicate = allBudgetRecords.find(
+      (b) =>
+        b.id !== editingBudgetId &&
+        b.status !== 'disabled' &&
+        b.period === budgetEditDraft.period &&
+        b.category === category
+    );
+    if (duplicate) {
+      setBudgetEditError('Đã có ngân sách cho danh mục và chu kỳ này rồi.');
+      return;
+    }
+    onBudgetRecordsChange?.(
+      allBudgetRecords.map((b) =>
+        b.id === editingBudgetId
+          ? {
+              ...b,
+              limit,
+              period: budgetEditDraft.period,
+              category,
+              note: normalizeText(budgetEditDraft.note),
+              updatedAt: Date.now(),
+            }
+          : b
+      )
+    );
+    closeBudgetEditModal();
   };
 
   const handleJarAiNote = async () => {
@@ -3110,12 +3182,20 @@ export default function ExpenseScreen({
                           {budget.note}
                         </Text>
                       ) : null}
-                      <Pressable
-                        style={styles.budgetDeleteBtn}
-                        onPress={() => handleDisableBudget(budget.id)}
-                      >
-                        <Text style={styles.budgetDeleteText}>Xóa ngân sách</Text>
-                      </Pressable>
+                      <View style={styles.budgetActionRow}>
+                        <Pressable
+                          style={styles.budgetEditBtn}
+                          onPress={() => handleEditBudget(budget)}
+                        >
+                          <Text style={styles.budgetEditText}>Sửa</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.budgetDeleteBtn}
+                          onPress={() => handleDisableBudget(budget.id)}
+                        >
+                          <Text style={styles.budgetDeleteText}>Xóa ngân sách</Text>
+                        </Pressable>
+                      </View>
                     </View>
                   );
                 })
@@ -4560,6 +4640,136 @@ export default function ExpenseScreen({
         </KeyboardAvoidingView>
       </Modal>
       <Modal
+        visible={editingBudgetId != null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeBudgetEditModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Sửa ngân sách</Text>
+              <Pressable onPress={closeBudgetEditModal} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseText}>×</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.fieldLabel}>Danh mục</Text>
+              <Pressable
+                style={styles.categorySummaryRow}
+                onPress={() => setBudgetEditCategoryOpen((open) => !open)}
+              >
+                {(() => {
+                  const cat = categoryById(budgetEditDraft.category, allCategories);
+                  return (
+                    <Text style={[styles.selectedCategoryText, { color: cat.color }]}>
+                      {cat.icon} {cat.label}
+                    </Text>
+                  );
+                })()}
+                <Text style={styles.categoryToggleText}>
+                  {budgetEditCategoryOpen ? 'Thu gọn ▲' : 'Đổi danh mục ▼'}
+                </Text>
+              </Pressable>
+              {budgetEditCategoryOpen ? (
+                <View style={styles.optionWrap}>
+                  {categoriesForMode('expense', allCategories).map((cat) => {
+                    const active = budgetEditDraft.category === cat.id;
+                    return (
+                      <Pressable
+                        key={cat.id}
+                        onPress={() => {
+                          updateBudgetEditDraft('category', cat.id);
+                          setBudgetEditCategoryOpen(false);
+                        }}
+                        style={[
+                          styles.categoryBtn,
+                          active && {
+                            borderColor: cat.color,
+                            backgroundColor: '#171923',
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.categoryIcon, { color: cat.color }]}>
+                          {cat.icon}
+                        </Text>
+                        <Text
+                          style={[styles.optionText, active && styles.optionTextActive]}
+                        >
+                          {cat.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              <Text style={styles.fieldLabel}>Chu kỳ</Text>
+              <View style={[styles.filterRow, { marginBottom: 12 }]}>
+                {[
+                  { id: 'daily', label: 'Ngày' },
+                  { id: 'weekly', label: 'Tuần' },
+                  { id: 'monthly', label: 'Tháng' },
+                ].map((opt) => (
+                  <Pressable
+                    key={opt.id}
+                    onPress={() => updateBudgetEditDraft('period', opt.id)}
+                    style={[
+                      styles.filterBtn,
+                      budgetEditDraft.period === opt.id && styles.filterBtnActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterText,
+                        budgetEditDraft.period === opt.id && styles.filterTextActive,
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <TextInput
+                value={budgetEditDraft.limit}
+                onChangeText={(v) => updateBudgetEditDraft('limit', v)}
+                placeholder="Số tiền giới hạn"
+                placeholderTextColor="#6f6a7d"
+                keyboardType="numeric"
+                style={styles.input}
+              />
+              <TextInput
+                value={budgetEditDraft.note}
+                onChangeText={(v) => updateBudgetEditDraft('note', v)}
+                placeholder="Ghi chú (tuỳ chọn)"
+                placeholderTextColor="#6f6a7d"
+                style={[styles.input, styles.noteInput]}
+                multiline
+              />
+              {budgetEditError ? (
+                <Text style={styles.errorText}>{budgetEditError}</Text>
+              ) : null}
+              <View style={styles.modalActions}>
+                <Pressable style={styles.modalCancelBtn} onPress={closeBudgetEditModal}>
+                  <Text style={styles.modalCancelText}>Hủy</Text>
+                </Pressable>
+                <Pressable style={styles.modalSaveBtn} onPress={handleSaveBudgetEdit}>
+                  <Text style={styles.addBtnText}>Lưu ngân sách</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+      <Modal
         visible={isEditing}
         transparent
         animationType="fade"
@@ -5588,9 +5798,30 @@ const styles = StyleSheet.create({
     borderColor: '#4a300b',
     backgroundColor: '#1f1609',
     paddingHorizontal: 10,
-    marginTop: 8,
   },
   budgetDeleteText: {
+    color: '#facc15',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  budgetActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    flexWrap: 'wrap',
+  },
+  budgetEditBtn: {
+    alignSelf: 'flex-start',
+    minHeight: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+    backgroundColor: '#211c0d',
+    paddingHorizontal: 14,
+  },
+  budgetEditText: {
     color: '#facc15',
     fontSize: 11,
     fontWeight: '900',
