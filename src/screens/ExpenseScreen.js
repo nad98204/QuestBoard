@@ -808,6 +808,7 @@ export default function ExpenseScreen({
   const [assetAiStatus, setAssetAiStatus] = useState('');
   const [assetAiError, setAssetAiError] = useState('');
   const [editingAssetId, setEditingAssetId] = useState(null);
+  const [selectedAssetDetailId, setSelectedAssetDetailId] = useState(null);
   const [assetEditDraft, setAssetEditDraft] = useState(() => buildAssetEditDraft(null));
   const [assetEditError, setAssetEditError] = useState('');
   const [assetGoalAiText, setAssetGoalAiText] = useState('');
@@ -848,7 +849,10 @@ export default function ExpenseScreen({
       : 'Số tiền chi, ví dụ: 85000';
 
   const allTransactions = useMemo(
-    () => (Array.isArray(transactions) ? transactions : []),
+    () =>
+      (Array.isArray(transactions) ? transactions : []).filter(
+        (tx) => tx?.source !== 'loan'
+      ),
     [transactions]
   );
   const recentCategoryExamples = useMemo(() => {
@@ -898,40 +902,139 @@ export default function ExpenseScreen({
     () => [...allTransactions, ...loanCashFlowTransactions],
     [allTransactions, loanCashFlowTransactions]
   );
-  const loanAssetReceivables = useMemo(
+  const loanAssetBreakdown = useMemo(
     () =>
-      allLoanRecords.reduce((sum, loan) => {
-        if (loan.type === 'borrowed') return sum;
-        return sum + getLoanRemainingAmount(loan);
-      }, 0),
+      allLoanRecords.reduce(
+        (acc, loan) => {
+          const amount = getLoanRemainingAmount(loan);
+          if (amount <= 0 || loan.type === 'borrowed') return acc;
+          if (loan.type === 'held') acc.held += amount;
+          else acc.lent += amount;
+          return acc;
+        },
+        { lent: 0, held: 0 }
+      ),
     [allLoanRecords]
   );
-  const recordedAssetTotal = useMemo(
+  const loanAssetReceivables = loanAssetBreakdown.lent;
+  const appTransactionAssetTotal = useMemo(
     () =>
-      ledgerTransactions.reduce(
+      allTransactions.reduce(
         (sum, tx) => sum + (Number(tx.amount) || 0),
-        loanAssetReceivables
+        0
       ),
-    [ledgerTransactions, loanAssetReceivables]
+    [allTransactions]
   );
+  const recordedAssetTotal = useMemo(
+    () => appTransactionAssetTotal + loanAssetReceivables,
+    [appTransactionAssetTotal, loanAssetReceivables]
+  );
+  const loanAssetItems = useMemo(
+    () =>
+      allLoanRecords
+        .map((loan) => {
+          const amount = getLoanRemainingAmount(loan);
+          if (amount <= 0 || loan.type === 'borrowed') return null;
+          const held = loan.type === 'held';
+          const person = normalizeText(loan.person, 'người khác');
+          return {
+            id: `asset-loan-${loan.id}`,
+            label: held ? `${person} giữ hộ mình` : `${person} nợ mình`,
+            amount,
+            detailType: 'loan_item',
+            loanKind: held ? 'held' : 'lent',
+            sourceText: held
+              ? 'Khoản người khác đang giữ/cầm hộ mình, chỉ theo dõi vị trí tiền.'
+              : 'Khoản người khác đang nợ mình.',
+            note: [
+              `Gốc ${formatCurrency(Number(loan.amount) || 0)}`,
+              `đã thu ${formatCurrency(getLoanPaidAmount(loan))}`,
+              loan.dateUnknown ? 'vay ngày xưa' : formatDateKeyLabel(loan.date),
+              loan.dueDate ? `hạn ${formatDateKeyLabel(loan.dueDate)}` : '',
+              normalizeText(loan.note),
+            ]
+              .filter(Boolean)
+              .join(' · '),
+          };
+        })
+        .filter(Boolean),
+    [allLoanRecords]
+  );
+  const appAssetMonthRows = useMemo(() => {
+    const byMonth = new Map();
+    for (const tx of allTransactions) {
+      const amount = Number(tx.amount) || 0;
+      const monthKey = getMonthKey(getTransactionDate(tx));
+      const row = byMonth.get(monthKey) ?? {
+        monthKey,
+        income: 0,
+        expense: 0,
+        balance: 0,
+        count: 0,
+      };
+      if (amount > 0) row.income += amount;
+      if (amount < 0) row.expense += Math.abs(amount);
+      row.balance += amount;
+      row.count += 1;
+      byMonth.set(monthKey, row);
+    }
+    let cumulative = 0;
+    return Array.from(byMonth.values())
+      .sort((a, b) => a.monthKey.localeCompare(b.monthKey))
+      .map((row) => {
+        cumulative += row.balance;
+        return { ...row, cumulative };
+      })
+      .reverse();
+  }, [allTransactions]);
   const currentAssetSnapshot = useMemo(() => {
     const snapshot =
       assetSnapshot && typeof assetSnapshot === 'object' ? assetSnapshot : {};
     const items = Array.isArray(snapshot.items) ? snapshot.items : [];
     const externalTotal = Math.max(0, Number(snapshot.total) || 0);
     const total = Math.max(0, recordedAssetTotal + externalTotal);
+    const formulaRows = [
+      {
+        id: 'app-balance',
+        label: 'Số dư trong app',
+        value: appTransactionAssetTotal,
+        note: 'Chỉ tính thu/chi thật trong app.',
+      },
+      {
+        id: 'loan-lent',
+        label: 'Tiền cho vay / chờ thu',
+        value: loanAssetBreakdown.lent,
+        note: 'Cộng riêng các khoản người khác đang nợ mình.',
+      },
+      {
+        id: 'loan-held',
+        label: 'Tiền người khác giữ hộ',
+        value: loanAssetBreakdown.held,
+        note: 'Chỉ theo dõi nơi tiền đang ở, không cộng thêm lần 2 vào tổng.',
+      },
+      {
+        id: 'external-assets',
+        label: 'Tài sản ngoài app',
+        value: externalTotal,
+        note: 'Các tài sản bạn tự ghi thêm ngoài hệ thống thu/chi.',
+      },
+    ];
     const displayItems = [
       {
         id: 'asset-recorded-balance',
         label: 'Số dư trong app',
-        amount: recordedAssetTotal,
+        amount: appTransactionAssetTotal,
+        detailType: 'app_balance',
+        sourceText: 'Tự tính từ thu chi, không gồm dòng vay nợ tự động.',
       },
+      ...loanAssetItems,
       ...items.map((item, index) => ({
         id: String(item?.id ?? `asset-${index}`),
         label: normalizeText(item?.label, 'Tài sản ngoài app'),
         amount: Math.max(0, Number(item?.amount) || 0),
         location: normalizeText(item?.location),
         note: normalizeText(item?.note),
+        detailType: 'external_asset',
         external: true,
       })),
     ].filter((item) => item.amount !== 0 || item.label);
@@ -939,11 +1042,25 @@ export default function ExpenseScreen({
       total,
       recordedTotal: recordedAssetTotal,
       externalTotal,
+      formulaRows,
       items: displayItems,
       note: normalizeText(snapshot.note),
       updatedAt: Number(snapshot.updatedAt) || 0,
     };
-  }, [assetSnapshot, recordedAssetTotal]);
+  }, [
+    appTransactionAssetTotal,
+    assetSnapshot,
+    loanAssetBreakdown,
+    loanAssetItems,
+    recordedAssetTotal,
+  ]);
+  const selectedAssetDetail = useMemo(
+    () =>
+      currentAssetSnapshot.items.find(
+        (item) => String(item.id) === String(selectedAssetDetailId)
+      ) ?? null,
+    [currentAssetSnapshot.items, selectedAssetDetailId]
+  );
 
   const assetGoalRows = useMemo(() => {
     const currentTotal = currentAssetSnapshot.total;
@@ -1893,6 +2010,10 @@ export default function ExpenseScreen({
     setEditingAssetId(null);
     setAssetEditDraft(buildAssetEditDraft(null));
     setAssetEditError('');
+  };
+
+  const closeAssetDetailModal = () => {
+    setSelectedAssetDetailId(null);
   };
 
   const handleEditAsset = (item) => {
@@ -3148,10 +3269,7 @@ export default function ExpenseScreen({
                 <View style={styles.assetTitleWrap}>
                   <Text style={styles.assetLabel}>Tổng tài sản cá nhân</Text>
                   <Text style={styles.txMeta}>
-                    Số dư app {formatCurrency(currentAssetSnapshot.recordedTotal)}
-                    {currentAssetSnapshot.externalTotal > 0
-                      ? ` · ngoài app ${formatCurrency(currentAssetSnapshot.externalTotal)}`
-                      : ''}
+                    Số dư app + tiền cho vay + tài sản ngoài app; tiền giữ hộ chỉ theo dõi
                   </Text>
                 </View>
                 <Text style={styles.assetValue}>
@@ -3159,47 +3277,74 @@ export default function ExpenseScreen({
                 </Text>
               </View>
 
+              <View style={styles.assetFormulaBox}>
+                <Text style={styles.assetDetailHeading}>Công thức tính tài sản</Text>
+                {currentAssetSnapshot.formulaRows.map((row) => (
+                  <View key={row.id} style={styles.assetFormulaRow}>
+                    <View style={styles.assetItemCopy}>
+                      <Text style={styles.assetFormulaLabel}>{row.label}</Text>
+                      <Text style={styles.assetFormulaNote}>{row.note}</Text>
+                    </View>
+                    <Text style={styles.assetFormulaValue}>
+                      {formatCurrency(row.value)}
+                    </Text>
+                  </View>
+                ))}
+                <View style={styles.assetFormulaTotalRow}>
+                  <Text style={styles.assetFormulaTotalLabel}>
+                    Tổng tài sản cá nhân
+                  </Text>
+                  <Text style={styles.assetFormulaTotalValue}>
+                    {formatCurrency(currentAssetSnapshot.total)}
+                  </Text>
+                </View>
+              </View>
+
               {currentAssetSnapshot.items.length > 0 ? (
                 <View style={styles.assetItemList}>
                   <Text style={styles.assetDetailHeading}>Chi tiết tài sản đang có</Text>
                   {currentAssetSnapshot.items.map((item) => (
                     <View key={item.id} style={styles.assetItemRow}>
-                      <View style={styles.assetItemCopy}>
-                        <Text style={styles.assetItemLabel}>
-                          {item.label}
-                        </Text>
-                        <Text style={styles.assetItemSource}>
-                          {item.external
-                            ? item.location
-                              ? `Nơi lưu: ${item.location}`
-                              : 'Tài sản ngoài app · chưa ghi nơi lưu'
-                            : 'Tự tính từ thu chi và sổ vay nợ trong app'}
-                        </Text>
-                        {item.note ? (
-                          <Text style={styles.assetItemNote}>{item.note}</Text>
-                        ) : null}
-                      </View>
-                      <View style={styles.assetItemRight}>
+                      <Pressable
+                        style={styles.assetItemTapArea}
+                        onPress={() => setSelectedAssetDetailId(item.id)}
+                      >
+                        <View style={styles.assetItemCopy}>
+                          <Text style={styles.assetItemLabel}>
+                            {item.label}
+                          </Text>
+                          <Text style={styles.assetItemSource}>
+                            {item.external
+                              ? item.location
+                                ? `Nơi lưu: ${item.location}`
+                                : 'Tài sản ngoài app · chưa ghi nơi lưu'
+                              : item.sourceText || 'Tự tính từ thu chi và sổ vay nợ trong app'}
+                          </Text>
+                          {item.note ? (
+                            <Text style={styles.assetItemNote}>{item.note}</Text>
+                          ) : null}
+                          <Text style={styles.assetItemHint}>Bấm để xem chi tiết</Text>
+                        </View>
                         <Text style={styles.assetItemAmount}>
                           {formatCurrency(item.amount)}
                         </Text>
-                        {item.external ? (
-                          <View style={styles.assetItemActions}>
-                            <Pressable
-                              style={styles.editBtn}
-                              onPress={() => handleEditAsset(item)}
-                            >
-                              <Text style={styles.editText}>Sửa</Text>
-                            </Pressable>
-                            <Pressable
-                              style={styles.deleteBtn}
-                              onPress={() => handleDeleteAsset(item.id)}
-                            >
-                              <Text style={styles.deleteText}>×</Text>
-                            </Pressable>
-                          </View>
-                        ) : null}
-                      </View>
+                      </Pressable>
+                      {item.external ? (
+                        <View style={styles.assetItemActions}>
+                          <Pressable
+                            style={styles.editBtn}
+                            onPress={() => handleEditAsset(item)}
+                          >
+                            <Text style={styles.editText}>Sửa</Text>
+                          </Pressable>
+                          <Pressable
+                            style={styles.deleteBtn}
+                            onPress={() => handleDeleteAsset(item.id)}
+                          >
+                            <Text style={styles.deleteText}>×</Text>
+                          </Pressable>
+                        </View>
+                      ) : null}
                     </View>
                   ))}
                 </View>
@@ -3972,6 +4117,134 @@ export default function ExpenseScreen({
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+      <Modal
+        visible={selectedAssetDetail != null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAssetDetailModal}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {selectedAssetDetail?.label ?? 'Chi tiết tài sản'}
+              </Text>
+              <Pressable onPress={closeAssetDetailModal} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseText}>×</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {selectedAssetDetail ? (
+                <>
+                  <View style={styles.assetDetailHero}>
+                    <Text style={styles.assetDetailInfoLabel}>Giá trị hiện tại</Text>
+                    <Text style={styles.assetDetailAmount}>
+                      {formatCurrency(selectedAssetDetail.amount)}
+                    </Text>
+                    <Text style={styles.assetItemSource}>
+                      {selectedAssetDetail.sourceText ||
+                        (selectedAssetDetail.external
+                          ? 'Tài sản ngoài app'
+                          : 'Tài sản tự tính trong app')}
+                    </Text>
+                  </View>
+
+                  {selectedAssetDetail.detailType === 'app_balance' ? (
+                    <View style={styles.assetDetailSection}>
+                      <Text style={styles.assetDetailHeading}>Các tháng tích được</Text>
+                      {appAssetMonthRows.length === 0 ? (
+                        <Text style={styles.txMeta}>Chưa có giao dịch để tách theo tháng.</Text>
+                      ) : (
+                        appAssetMonthRows.map((row) => (
+                          <View key={row.monthKey} style={styles.assetMonthRow}>
+                            <View style={styles.assetItemCopy}>
+                              <Text style={styles.assetMonthTitle}>
+                                {monthLabel(row.monthKey)}
+                              </Text>
+                              <Text style={styles.assetMonthMeta}>
+                                Thu {formatCurrency(row.income)} · chi{' '}
+                                {formatCurrency(row.expense)} · {row.count} giao dịch
+                              </Text>
+                              <Text style={styles.assetMonthMeta}>
+                                Lũy kế đến tháng này {formatCurrency(row.cumulative)}
+                              </Text>
+                            </View>
+                            <Text
+                              style={[
+                                styles.assetMonthAmount,
+                                row.balance >= 0 ? styles.incomeText : styles.expenseText,
+                              ]}
+                            >
+                              {formatSignedAmount(row.balance)}
+                            </Text>
+                          </View>
+                        ))
+                      )}
+                    </View>
+                  ) : null}
+
+                  {selectedAssetDetail.detailType === 'loan_group' ? (
+                    <View style={styles.assetDetailSection}>
+                      <Text style={styles.assetDetailHeading}>Các khoản bên trong</Text>
+                      {Array.isArray(selectedAssetDetail.subItems) &&
+                      selectedAssetDetail.subItems.length > 0 ? (
+                        selectedAssetDetail.subItems.map((item) => (
+                          <View key={item.id} style={styles.assetMonthRow}>
+                            <View style={styles.assetItemCopy}>
+                              <Text style={styles.assetMonthTitle}>{item.label}</Text>
+                              <Text style={styles.assetMonthMeta}>{item.note}</Text>
+                            </View>
+                            <Text style={styles.assetMonthAmount}>
+                              {formatCurrency(item.amount)}
+                            </Text>
+                          </View>
+                        ))
+                      ) : (
+                        <Text style={styles.txMeta}>Không còn khoản đang mở.</Text>
+                      )}
+                    </View>
+                  ) : null}
+
+                  {selectedAssetDetail.detailType === 'external_asset' ? (
+                    <View style={styles.assetDetailSection}>
+                      <View style={styles.assetDetailInfoRow}>
+                        <Text style={styles.assetDetailInfoLabel}>Nơi lưu</Text>
+                        <Text style={styles.assetDetailInfoValue}>
+                          {selectedAssetDetail.location || 'Chưa ghi nơi lưu'}
+                        </Text>
+                      </View>
+                      <View style={styles.assetDetailInfoRow}>
+                        <Text style={styles.assetDetailInfoLabel}>Ghi chú</Text>
+                        <Text style={styles.assetDetailInfoValue}>
+                          {selectedAssetDetail.note || 'Chưa có ghi chú'}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {selectedAssetDetail.detailType === 'loan_item' && selectedAssetDetail.note ? (
+                    <View style={styles.assetDetailSection}>
+                      <Text style={styles.assetDetailHeading}>Thông tin khoản</Text>
+                      <Text style={styles.assetDetailInfoValue}>
+                        {selectedAssetDetail.note}
+                      </Text>
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+              <View style={styles.modalActions}>
+                <Pressable style={styles.modalCancelBtn} onPress={closeAssetDetailModal}>
+                  <Text style={styles.modalCancelText}>Đóng</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
       <Modal
         visible={editingAssetId != null}
@@ -4813,6 +5086,61 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'right',
   },
+  assetFormulaBox: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#164e52',
+    backgroundColor: '#061d20',
+    padding: 10,
+    marginBottom: 12,
+    gap: 8,
+  },
+  assetFormulaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  assetFormulaLabel: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  assetFormulaNote: {
+    color: '#8db7ba',
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  assetFormulaValue: {
+    flexShrink: 0,
+    color: '#67e8f9',
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  assetFormulaTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#164e52',
+    paddingTop: 8,
+    marginTop: 2,
+  },
+  assetFormulaTotalLabel: {
+    color: '#cffafe',
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  assetFormulaTotalValue: {
+    color: '#67e8f9',
+    fontSize: 14,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
   assetItemList: {
     gap: 8,
     marginBottom: 8,
@@ -4835,6 +5163,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a1c1f',
     padding: 10,
   },
+  assetItemTapArea: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
   assetItemCopy: {
     flex: 1,
     minWidth: 0,
@@ -4856,6 +5192,12 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     marginTop: 3,
   },
+  assetItemHint: {
+    color: '#67e8f9',
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 5,
+  },
   assetItemRight: {
     alignItems: 'flex-end',
     gap: 6,
@@ -4869,6 +5211,73 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flexShrink: 0,
+  },
+  assetDetailHero: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#164e52',
+    backgroundColor: '#061d20',
+    padding: 12,
+    marginBottom: 12,
+  },
+  assetDetailAmount: {
+    color: '#67e8f9',
+    fontSize: 22,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  assetDetailSection: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  assetDetailInfoRow: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#252542',
+    backgroundColor: '#101018',
+    padding: 10,
+  },
+  assetDetailInfoLabel: {
+    color: '#9ca3af',
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  assetDetailInfoValue: {
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  assetMonthRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#252542',
+    backgroundColor: '#101018',
+    padding: 10,
+  },
+  assetMonthTitle: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  assetMonthMeta: {
+    color: '#a0a0c0',
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 3,
+  },
+  assetMonthAmount: {
+    flexShrink: 0,
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'right',
   },
   assetInput: {
     minHeight: 64,
