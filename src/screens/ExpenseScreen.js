@@ -1,17 +1,13 @@
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
-  Image,
   ImageBackground,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,6 +20,20 @@ import {
   fetchLoanRecordsFromAI,
   fetchMoneyJarsFromAI,
 } from '../utils/aiCoach';
+import GiaoDichTab from './chiPhiTabs/GiaoDichTab';
+import BaoCaoTab from './chiPhiTabs/BaoCaoTab';
+import VayNoTab from './chiPhiTabs/VayNoTab';
+import NganSachTab from './chiPhiTabs/NganSachTab';
+import HuTienTab from './chiPhiTabs/HuTienTab';
+import TaiSanTab from './chiPhiTabs/TaiSanTab';
+import GhiTienVaoHu from './hopThoaiChiPhi/GhiTienVaoHu';
+import SuaHuTien from './hopThoaiChiPhi/SuaHuTien';
+import ChiTietTaiSan from './hopThoaiChiPhi/ChiTietTaiSan';
+import SuaTaiSan from './hopThoaiChiPhi/SuaTaiSan';
+import XacNhanDanhMucAi from './hopThoaiChiPhi/XacNhanDanhMucAi';
+import SuaVayNo from './hopThoaiChiPhi/SuaVayNo';
+import SuaNganSach from './hopThoaiChiPhi/SuaNganSach';
+import SuaGiaoDich from './hopThoaiChiPhi/SuaGiaoDich';
 
 const EXPENSE_IMAGES = {
   header: require('../../assets/images/expenses/expense_header_bg.png'),
@@ -2883,2055 +2893,269 @@ export default function ExpenseScreen({
           </ImageBackground>
 
           {activeLedgerTab === 'transactions' ? (
-          <View style={styles.aiCard}>
-            <View style={styles.aiHeaderRow}>
-              <View style={styles.aiAvatar}>
-                <Image
-                  source={EXPENSE_IMAGES.transactions}
-                  style={styles.expenseSectionIcon}
-                  resizeMode="contain"
-                />
-              </View>
-              <View style={styles.aiHeaderCopy}>
-                <Text style={styles.aiTitle}>Hôm nay bạn đã chi tiêu gì?</Text>
-                <Text style={styles.aiSubtitle}>Nhập tự nhiên, AI sẽ tự tách khoản và chọn danh mục.</Text>
-              </View>
-            </View>
-            <TextInput
-              value={aiText}
-              onChangeText={(v) => {
-                setAiText(v);
-                setAiError('');
-                setAiStatus('');
-              }}
-              placeholder="bữa tối 100k, mua sắm 400k"
-              placeholderTextColor="#6f6a7d"
-              style={[styles.input, styles.aiInput]}
-              multiline
-              editable={!aiBusy}
-            />
-            {aiError ? <Text style={styles.errorText}>{aiError}</Text> : null}
-            {aiStatus ? <Text style={styles.aiStatusText}>{aiStatus}</Text> : null}
-            <Pressable
-              style={[styles.aiSubmitBtn, aiBusy && styles.disabledBtn]}
-              onPress={handleAiNote}
-              disabled={aiBusy}
-            >
-              {aiBusy ? (
-                <ActivityIndicator color="#061516" />
-              ) : (
-                <Text style={styles.aiSubmitText}>AI ghi giao dịch</Text>
-              )}
-            </Pressable>
-          </View>
+        <GiaoDichTab
+          aiBusy={aiBusy}
+          aiError={aiError}
+          aiStatus={aiStatus}
+          aiText={aiText}
+          allCategories={allCategories}
+          allLoanRecords={allLoanRecords}
+          amountPlaceholder={amountPlaceholder}
+          canAdd={canAdd}
+          categoryById={categoryById}
+          categoryDraft={categoryDraft}
+          categoryOpen={categoryOpen}
+          draft={draft}
+          editingId={editingId}
+          entryCategories={entryCategories}
+          entryPlaceholder={entryPlaceholder}
+          entryTitle={entryTitle}
+          error={error}
+          EXPENSE_IMAGES={EXPENSE_IMAGES}
+          filter={filter}
+          formatSignedAmount={formatSignedAmount}
+          getDayLabel={getDayLabel}
+          getTransactionDate={getTransactionDate}
+          groupedTransactions={groupedTransactions}
+          handleAddCategory={handleAddCategory}
+          handleAiNote={handleAiNote}
+          handleDelete={handleDelete}
+          handleEdit={handleEdit}
+          handleEditLoan={handleEditLoan}
+          handleSubmit={handleSubmit}
+          manualOpen={manualOpen}
+          selectedEntryCategory={selectedEntryCategory}
+          setActiveLedgerTab={setActiveLedgerTab}
+          setAiError={setAiError}
+          setAiStatus={setAiStatus}
+          setAiText={setAiText}
+          setCategoryDraft={setCategoryDraft}
+          setCategoryOpen={setCategoryOpen}
+          setError={setError}
+          setManualOpen={setManualOpen}
+          styles={styles}
+          timeKeyFromDate={timeKeyFromDate}
+          updateDraft={updateDraft}
+        />
           ) : null}
 
           {activeLedgerTab === 'loans' ? (
-          <View style={styles.loanCard}>
-            <View style={styles.aiHeaderRow}>
-              <View style={styles.loanAvatar}>
-                <Image
-                  source={EXPENSE_IMAGES.loans}
-                  style={styles.expenseSectionIcon}
-                  resizeMode="contain"
-                />
-              </View>
-              <View style={styles.aiHeaderCopy}>
-                <Text style={styles.aiTitle}>Sổ vay nợ riêng</Text>
-                <Text style={styles.aiSubtitle}>
-                  Ghi vay nợ, trả nợ, hoặc người khác giữ/cầm tiền hộ mình.
-                </Text>
-              </View>
-            </View>
-
-            <TextInput
-              value={loanAiText}
-              onChangeText={(v) => {
-                setLoanAiText(v);
-                setLoanAiError('');
-                setLoanAiStatus('');
-              }}
-              placeholder="cho Nam vay 500k, vay Lan ngày xưa 1tr, người yêu giữ hộ 2tr"
-              placeholderTextColor="#6f6a7d"
-              style={[styles.input, styles.aiInput]}
-              multiline
-              editable={!loanAiBusy}
-            />
-            {loanAiError ? (
-              <Text style={styles.errorText}>{loanAiError}</Text>
-            ) : null}
-            {loanAiStatus ? (
-              <Text style={styles.loanStatusText}>{loanAiStatus}</Text>
-            ) : null}
-            <Pressable
-              style={[styles.loanSubmitBtn, loanAiBusy && styles.disabledBtn]}
-              onPress={handleLoanAiNote}
-              disabled={loanAiBusy}
-            >
-              {loanAiBusy ? (
-                <ActivityIndicator color="#100b16" />
-              ) : (
-                <Text style={styles.loanSubmitText}>AI ghi vay nợ</Text>
-              )}
-            </Pressable>
-
-            <View style={styles.loanList}>
-              {sortedLoanRecords.length === 0 ? (
-                <Text style={styles.emptyText}>Chưa có khoản vay nợ nào.</Text>
-              ) : (
-                sortedLoanRecords.map((loan) => {
-                  const settled = isLoanSettled(loan);
-                  const borrowed = loan.type === 'borrowed';
-                  const held = loan.type === 'held';
-                  const paidAmount = getLoanPaidAmount(loan);
-                  const remainingAmount = getLoanRemainingAmount(loan);
-                  const payments = Array.isArray(loan.payments) ? loan.payments : [];
-                  return (
-                    <View
-                      key={loan.id}
-                      style={[styles.loanRow, settled && styles.loanRowSettled]}
-                    >
-                      <View style={styles.loanBody}>
-                        <View style={styles.txTopLine}>
-                          <Text style={styles.txTitle} numberOfLines={1}>
-                            {borrowed
-                              ? `Mình vay ${loan.person}`
-                              : held
-                                ? `${loan.person} giữ hộ mình`
-                                : `${loan.person} nợ mình`}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.txAmount,
-                              remainingAmount > 0
-                                ? borrowed
-                                  ? styles.expenseText
-                                  : styles.incomeText
-                                : styles.txSettledText,
-                            ]}
-                          >
-                            {remainingAmount > 0
-                              ? formatCurrency(remainingAmount)
-                              : 'Đã xong'}
-                          </Text>
-                        </View>
-                        <Text style={styles.txMeta} numberOfLines={1}>
-                          Gốc {formatCurrency(Number(loan.amount) || 0)} · đã trả{' '}
-                          {formatCurrency(paidAmount)} ·{' '}
-                          {loan.dateUnknown ? 'vay ngày xưa' : formatDateKeyLabel(loan.date)}
-                          {loan.dueDate
-                            ? ` · hạn ${formatDateKeyLabel(loan.dueDate)}`
-                            : ''}
-                        </Text>
-                        {loan.note ? (
-                          <Text style={styles.txNote} numberOfLines={2}>
-                            {loan.note}
-                          </Text>
-                        ) : null}
-                        {payments.length > 0 ? (
-                          <View style={styles.paymentList}>
-                            {payments.map((payment, index) => (
-                              <Text
-                                key={payment.id ?? `${loan.id}-payment-${index}`}
-                                style={styles.paymentText}
-                                numberOfLines={1}
-                              >
-                                - Đợt {index + 1}: {formatCurrency(payment.amount)} ·{' '}
-                                {formatDateKeyLabel(payment.date)}
-                                {payment.note ? ` · ${payment.note}` : ''}
-                              </Text>
-                            ))}
-                          </View>
-                        ) : null}
-                      </View>
-                      <View style={styles.loanActions}>
-                        <Pressable
-                          style={styles.editBtn}
-                          onPress={() => handleEditLoan(loan)}
-                        >
-                          <Text style={styles.editText}>Sửa</Text>
-                        </Pressable>
-                        {!settled ? (
-                          <Pressable
-                            style={styles.loanSettleBtn}
-                            onPress={() => handleSettleLoan(loan.id)}
-                          >
-                            <Text style={styles.loanSettleText}>
-                              {borrowed ? 'Trả hết' : held ? 'Lấy hết' : 'Thu hết'}
-                            </Text>
-                          </Pressable>
-                        ) : null}
-                        <Pressable
-                          style={styles.deleteBtn}
-                          onPress={() => handleDeleteLoan(loan.id)}
-                          hitSlop={10}
-                        >
-                          <Text style={styles.deleteText}>×</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          </View>
+        <VayNoTab
+          EXPENSE_IMAGES={EXPENSE_IMAGES}
+          formatCurrency={formatCurrency}
+          formatDateKeyLabel={formatDateKeyLabel}
+          getLoanPaidAmount={getLoanPaidAmount}
+          getLoanRemainingAmount={getLoanRemainingAmount}
+          handleDeleteLoan={handleDeleteLoan}
+          handleEditLoan={handleEditLoan}
+          handleLoanAiNote={handleLoanAiNote}
+          handleSettleLoan={handleSettleLoan}
+          isLoanSettled={isLoanSettled}
+          loanAiBusy={loanAiBusy}
+          loanAiError={loanAiError}
+          loanAiStatus={loanAiStatus}
+          loanAiText={loanAiText}
+          setLoanAiError={setLoanAiError}
+          setLoanAiStatus={setLoanAiStatus}
+          setLoanAiText={setLoanAiText}
+          sortedLoanRecords={sortedLoanRecords}
+          styles={styles}
+        />
           ) : null}
 
           {activeLedgerTab === 'budgets' ? (
-          <View style={styles.budgetCard}>
-            <View style={styles.aiHeaderRow}>
-              <View style={styles.budgetAvatar}>
-                <Image
-                  source={EXPENSE_IMAGES.budget}
-                  style={styles.expenseSectionIcon}
-                  resizeMode="contain"
-                />
-              </View>
-              <View style={styles.aiHeaderCopy}>
-                <Text style={styles.aiTitle}>Ngân sách chi tiêu</Text>
-                <Text style={styles.aiSubtitle}>
-                  Đặt giới hạn ngày, tuần, tháng. App tự tính đã dùng từ giao dịch thật.
-                </Text>
-              </View>
-            </View>
-
-            <TextInput
-              value={budgetAiText}
-              onChangeText={(v) => {
-                setBudgetAiText(v);
-                setBudgetAiError('');
-                setBudgetAiStatus('');
-              }}
-              placeholder="tháng này ăn uống 3tr, cà phê tuần này 300k"
-              placeholderTextColor="#6f6a7d"
-              style={[styles.input, styles.aiInput]}
-              multiline
-              editable={!budgetAiBusy}
-            />
-            {budgetAiError ? (
-              <Text style={styles.errorText}>{budgetAiError}</Text>
-            ) : null}
-            {budgetAiStatus ? (
-              <Text style={styles.budgetStatusText}>{budgetAiStatus}</Text>
-            ) : null}
-            <Pressable
-              style={[styles.budgetSubmitBtn, budgetAiBusy && styles.disabledBtn]}
-              onPress={handleBudgetAiNote}
-              disabled={budgetAiBusy}
-            >
-              {budgetAiBusy ? (
-                <ActivityIndicator color="#171005" />
-              ) : (
-                <Text style={styles.budgetSubmitText}>AI đặt ngân sách</Text>
-              )}
-            </Pressable>
-
-            <View style={styles.budgetList}>
-              {budgetRows.length === 0 ? (
-                <Text style={styles.emptyText}>Chưa có ngân sách nào.</Text>
-              ) : (
-                budgetRows.map((budget) => {
-                  const over = budget.spent > budget.limit;
-                  const percent = Math.round((budget.progress || 0) * 100);
-                  return (
-                    <View key={budget.id} style={styles.budgetRow}>
-                      <View style={styles.budgetTopLine}>
-                        <View style={styles.budgetTitleWrap}>
-                          <Text
-                            style={[
-                              styles.categoryIcon,
-                              { color: budget.categoryInfo.color },
-                            ]}
-                          >
-                            {budget.categoryInfo.icon}
-                          </Text>
-                          <View style={styles.budgetNameWrap}>
-                            <Text style={styles.txTitle} numberOfLines={1}>
-                              {budget.categoryInfo.label}
-                            </Text>
-                            <Text style={styles.txMeta} numberOfLines={1}>
-                              {periodLabel(budget.period)} · {budget.periodDateLabel}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text
-                          style={[
-                            styles.txAmount,
-                            over ? styles.expenseText : styles.incomeText,
-                          ]}
-                        >
-                          {percent}%
-                        </Text>
-                      </View>
-                      <View style={styles.budgetProgressTrack}>
-                        <View
-                          style={[
-                            styles.budgetProgressFill,
-                            over && styles.budgetProgressOver,
-                            { width: `${Math.min(100, percent)}%` },
-                          ]}
-                        />
-                      </View>
-                      <Text style={styles.txMeta}>
-                        Đã dùng {formatCurrency(budget.spent)} /{' '}
-                        {formatCurrency(budget.limit)} · còn{' '}
-                        {formatCurrency(budget.remaining)}
-                      </Text>
-                      {budget.note ? (
-                        <Text style={styles.txNote} numberOfLines={2}>
-                          {budget.note}
-                        </Text>
-                      ) : null}
-                      <View style={styles.budgetActionRow}>
-                        <Pressable
-                          style={styles.budgetEditBtn}
-                          onPress={() => handleEditBudget(budget)}
-                        >
-                          <Text style={styles.budgetEditText}>Sửa</Text>
-                        </Pressable>
-                        <Pressable
-                          style={styles.budgetDeleteBtn}
-                          onPress={() => handleDisableBudget(budget.id)}
-                        >
-                          <Text style={styles.budgetDeleteText}>Xóa ngân sách</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          </View>
+        <NganSachTab
+          budgetAiBusy={budgetAiBusy}
+          budgetAiError={budgetAiError}
+          budgetAiStatus={budgetAiStatus}
+          budgetAiText={budgetAiText}
+          budgetRows={budgetRows}
+          EXPENSE_IMAGES={EXPENSE_IMAGES}
+          formatCurrency={formatCurrency}
+          handleBudgetAiNote={handleBudgetAiNote}
+          handleDisableBudget={handleDisableBudget}
+          handleEditBudget={handleEditBudget}
+          periodLabel={periodLabel}
+          setBudgetAiError={setBudgetAiError}
+          setBudgetAiStatus={setBudgetAiStatus}
+          setBudgetAiText={setBudgetAiText}
+          styles={styles}
+        />
           ) : null}
 
           {activeLedgerTab === 'reports' ? (
-          <View style={styles.reportCard}>
-            <View style={styles.aiHeaderRow}>
-              <View style={styles.reportAvatar}>
-                <Image
-                  source={EXPENSE_IMAGES.report}
-                  style={styles.expenseSectionIcon}
-                  resizeMode="contain"
-                />
-              </View>
-              <View style={styles.aiHeaderCopy}>
-                <Text style={styles.aiTitle}>Báo cáo chi tiêu</Text>
-                <Text style={styles.aiSubtitle}>
-                  Xem bạn hay chi vào đâu theo từng tháng hoặc cả năm.
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.filterRow}>
-              {[
-                { id: 'month', label: 'Theo tháng' },
-                { id: 'year', label: 'Theo năm' },
-              ].map((item) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => setReportMode(item.id)}
-                  style={[
-                    styles.filterBtn,
-                    reportMode === item.id && styles.filterBtnActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.filterText,
-                      reportMode === item.id && styles.filterTextActive,
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            <View style={styles.reportSummaryBox}>
-              <Text style={styles.txMeta}>{reportData.label}</Text>
-              <Text style={styles.reportBigValue}>
-                {formatCurrency(reportData.expense)}
-              </Text>
-              <Text style={styles.txMeta}>
-                {reportData.count} giao dịch chi · thu {formatCurrency(reportData.income)} · còn{' '}
-                {formatSignedAmount(reportData.balance)}
-              </Text>
-            </View>
-
-            <View style={styles.budgetList}>
-              {reportData.categoryRows.length === 0 ? (
-                <Text style={styles.emptyText}>Chưa có chi tiêu trong kỳ này.</Text>
-              ) : (
-                reportData.categoryRows.map((row, index) => {
-                  const percent = Math.round(row.percent * 100);
-                  return (
-                    <View key={row.category} style={styles.reportRow}>
-                      <View style={styles.budgetTopLine}>
-                        <View style={styles.budgetTitleWrap}>
-                          <Text
-                            style={[
-                              styles.categoryIcon,
-                              { color: row.categoryInfo.color },
-                            ]}
-                          >
-                            {row.categoryInfo.icon}
-                          </Text>
-                          <View style={styles.budgetNameWrap}>
-                            <Text style={styles.txTitle} numberOfLines={1}>
-                              #{index + 1} {row.categoryInfo.label}
-                            </Text>
-                            <Text style={styles.txMeta} numberOfLines={1}>
-                              {row.count} lần · {percent}% tổng chi
-                            </Text>
-                          </View>
-                        </View>
-                        <Text style={[styles.txAmount, styles.expenseText]}>
-                          {formatCurrency(row.amount)}
-                        </Text>
-                      </View>
-                      <View style={styles.budgetProgressTrack}>
-                        <View
-                          style={[
-                            styles.reportProgressFill,
-                            { width: `${Math.min(100, percent)}%` },
-                          ]}
-                        />
-                      </View>
-                      <View style={styles.reportItemList}>
-                        {row.items.map((tx) => {
-                          const txDate = getTransactionDate(tx);
-                          return (
-                            <View key={tx.id} style={styles.reportItemRow}>
-                              <View style={styles.reportItemTextWrap}>
-                                <Text style={styles.reportItemTitle} numberOfLines={1}>
-                                  {tx.description}
-                                </Text>
-                                <Text style={styles.txMeta} numberOfLines={1}>
-                                  {formatDateKeyLabel(dateKeyFromDate(txDate))} ·{' '}
-                                  {timeKeyFromDate(txDate)}
-                                </Text>
-                              </View>
-                              <Text style={[styles.reportItemAmount, styles.expenseText]}>
-                                {formatCurrency(Math.abs(Number(tx.amount) || 0))}
-                              </Text>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          </View>
+        <BaoCaoTab
+          dateKeyFromDate={dateKeyFromDate}
+          EXPENSE_IMAGES={EXPENSE_IMAGES}
+          formatCurrency={formatCurrency}
+          formatDateKeyLabel={formatDateKeyLabel}
+          formatSignedAmount={formatSignedAmount}
+          getTransactionDate={getTransactionDate}
+          reportData={reportData}
+          reportMode={reportMode}
+          setReportMode={setReportMode}
+          styles={styles}
+          timeKeyFromDate={timeKeyFromDate}
+        />
           ) : null}
 
           {activeLedgerTab === 'assets' ? (
-          <View style={styles.assetCard}>
-            <View style={styles.aiHeaderRow}>
-              <View style={styles.assetAvatar}>
-                <Image
-                  source={EXPENSE_IMAGES.assets}
-                  style={styles.expenseSectionIcon}
-                  resizeMode="contain"
-                />
-              </View>
-              <View style={styles.aiHeaderCopy}>
-                <Text style={styles.aiTitle}>Tổng tài sản cá nhân</Text>
-                <Text style={styles.aiSubtitle}>
-                  Tự tính từ thu chi trong app, không trừ vay nợ, cộng thêm tài sản ngoài app.
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.assetBox}>
-              <View style={styles.assetTopLine}>
-                <View style={styles.assetTitleWrap}>
-                  <Text style={styles.assetLabel}>Tổng tài sản cá nhân</Text>
-                  <Text style={styles.txMeta}>
-                    Số dư app + tiền cho vay + tài sản ngoài app; tiền giữ hộ chỉ theo dõi
-                  </Text>
-                </View>
-                <Text style={styles.assetValue}>
-                  {formatCurrency(currentAssetSnapshot.total)}
-                </Text>
-              </View>
-
-              <View style={styles.assetFormulaBox}>
-                <Text style={styles.assetDetailHeading}>Công thức tính tài sản</Text>
-                {currentAssetSnapshot.formulaRows.map((row) => (
-                  <View key={row.id} style={styles.assetFormulaRow}>
-                    <View style={styles.assetItemCopy}>
-                      <Text style={styles.assetFormulaLabel}>{row.label}</Text>
-                      <Text style={styles.assetFormulaNote}>{row.note}</Text>
-                    </View>
-                    <Text style={styles.assetFormulaValue}>
-                      {formatCurrency(row.value)}
-                    </Text>
-                  </View>
-                ))}
-                <View style={styles.assetFormulaTotalRow}>
-                  <Text style={styles.assetFormulaTotalLabel}>
-                    Tổng tài sản cá nhân
-                  </Text>
-                  <Text style={styles.assetFormulaTotalValue}>
-                    {formatCurrency(currentAssetSnapshot.total)}
-                  </Text>
-                </View>
-              </View>
-
-              {currentAssetSnapshot.items.length > 0 ? (
-                <View style={styles.assetItemList}>
-                  <Text style={styles.assetDetailHeading}>Chi tiết tài sản đang có</Text>
-                  {currentAssetSnapshot.items.map((item) => (
-                    <View key={item.id} style={styles.assetItemRow}>
-                      <Pressable
-                        style={styles.assetItemTapArea}
-                        onPress={() => setSelectedAssetDetailId(item.id)}
-                      >
-                        <View style={styles.assetItemCopy}>
-                          <Text style={styles.assetItemLabel}>
-                            {item.label}
-                          </Text>
-                          <Text style={styles.assetItemSource}>
-                            {item.external
-                              ? item.location
-                                ? `Nơi lưu: ${item.location}`
-                                : 'Tài sản ngoài app · chưa ghi nơi lưu'
-                              : item.sourceText || 'Tự tính từ thu chi và sổ vay nợ trong app'}
-                          </Text>
-                          {item.note ? (
-                            <Text style={styles.assetItemNote}>{item.note}</Text>
-                          ) : null}
-                          <Text style={styles.assetItemHint}>Bấm để xem chi tiết</Text>
-                        </View>
-                        <Text style={styles.assetItemAmount}>
-                          {formatCurrency(item.amount)}
-                        </Text>
-                      </Pressable>
-                      {item.external ? (
-                        <View style={styles.assetItemActions}>
-                          <Pressable
-                            style={styles.editBtn}
-                            onPress={() => handleEditAsset(item)}
-                          >
-                            <Text style={styles.editText}>Sửa</Text>
-                          </Pressable>
-                          <Pressable
-                            style={styles.deleteBtn}
-                            onPress={() => handleDeleteAsset(item.id)}
-                          >
-                            <Text style={styles.deleteText}>×</Text>
-                          </Pressable>
-                        </View>
-                      ) : null}
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                <Text style={styles.txMeta}>
-                  Chưa có giao dịch hoặc tài sản ngoài app để tính.
-                </Text>
-              )}
-
-              {currentAssetSnapshot.note ? (
-                <Text style={styles.txNote} numberOfLines={2}>
-                  {currentAssetSnapshot.note}
-                </Text>
-              ) : null}
-            </View>
-
-            <Text style={styles.fieldLabel}>Tài sản ngoài app</Text>
-            <TextInput
-              value={assetAiText}
-              onChangeText={(v) => {
-                setAssetAiText(v);
-                setAssetAiError('');
-                setAssetAiStatus('');
-              }}
-              placeholder="ví dụ: tiền mặt ngoài app 5tr, tiết kiệm 15tr, đầu tư 20tr"
-              placeholderTextColor="#6f6a7d"
-              style={[styles.input, styles.assetInput]}
-              multiline
-              editable={!assetAiBusy}
-            />
-            {assetAiError ? <Text style={styles.errorText}>{assetAiError}</Text> : null}
-            {assetAiStatus ? (
-              <Text style={styles.assetStatusText}>{assetAiStatus}</Text>
-            ) : null}
-            <Pressable
-              style={[styles.assetSubmitBtn, assetAiBusy && styles.disabledBtn]}
-              onPress={handleAssetAiNote}
-              disabled={assetAiBusy}
-            >
-              {assetAiBusy ? (
-                <ActivityIndicator color="#071416" />
-              ) : (
-                  <Text style={styles.assetSubmitText}>AI thêm tài sản ngoài app</Text>
-              )}
-            </Pressable>
-
-            <View style={styles.assetGoalSection}>
-              <View style={styles.assetGoalHeader}>
-                <View style={styles.assetTitleWrap}>
-                  <Text style={styles.assetLabel}>Mục tiêu tài sản</Text>
-                  <Text style={styles.txMeta}>
-                    Lập mốc năm nay, 5 năm, 10 năm và theo dõi tiến độ từ tài sản hiện tại.
-                  </Text>
-                </View>
-              </View>
-
-              <TextInput
-                value={assetGoalAiText}
-                onChangeText={(v) => {
-                  setAssetGoalAiText(v);
-                  setAssetGoalAiError('');
-                  setAssetGoalAiStatus('');
-                }}
-                placeholder="ví dụ: hiện có 50tr, năm nay đạt 100tr, 5 năm nữa đạt 1 tỷ"
-                placeholderTextColor="#6f6a7d"
-                style={[styles.input, styles.assetInput]}
-                multiline
-                editable={!assetGoalAiBusy}
-              />
-              {currentAssetSnapshot.total <= 0 ? (
-                <Text style={styles.txMeta}>
-                  Nếu thanh đang 0, hãy nói kèm tài sản hiện có, ví dụ: hiện có 50tr, 5 năm nữa đạt 1 tỷ.
-                </Text>
-              ) : null}
-              {assetGoalAiError ? (
-                <Text style={styles.errorText}>{assetGoalAiError}</Text>
-              ) : null}
-              {assetGoalAiStatus ? (
-                <Text style={styles.assetStatusText}>{assetGoalAiStatus}</Text>
-              ) : null}
-              <Pressable
-                style={[
-                  styles.assetSubmitBtn,
-                  assetGoalAiBusy && styles.disabledBtn,
-                ]}
-                onPress={handleAssetGoalAiNote}
-                disabled={assetGoalAiBusy}
-              >
-                {assetGoalAiBusy ? (
-                  <ActivityIndicator color="#071416" />
-                ) : (
-                  <Text style={styles.assetSubmitText}>AI lập mục tiêu tài sản</Text>
-                )}
-              </Pressable>
-
-              <View style={styles.assetGoalList}>
-                {assetGoalRows.length === 0 ? (
-                  <Text style={styles.emptyText}>Chưa có mục tiêu tài sản nào.</Text>
-                ) : (
-                  assetGoalRows.map((goal) => {
-                    const percent = Math.round((goal.progress || 0) * 100);
-                    const reached = goal.remaining <= 0;
-                    return (
-                      <View key={goal.id} style={styles.assetGoalRow}>
-                        <View style={styles.budgetTopLine}>
-                          <View style={styles.budgetNameWrap}>
-                            <Text style={styles.txTitle} numberOfLines={1}>
-                              {goal.label}
-                            </Text>
-                            <Text style={styles.txMeta} numberOfLines={1}>
-                              Hạn {goal.targetDateLabel || goal.targetDate} ·{' '}
-                              {monthsLeftLabel(goal.monthsLeft)}
-                            </Text>
-                          </View>
-                          <Text style={styles.assetGoalTarget}>
-                            {formatCurrency(goal.targetAmount)}
-                          </Text>
-                        </View>
-
-                        <View style={styles.budgetProgressTrack}>
-                          <View
-                            style={[
-                              styles.assetGoalProgressFill,
-                              reached && styles.assetGoalReachedFill,
-                              { width: `${Math.min(100, percent)}%` },
-                            ]}
-                          />
-                        </View>
-                        <Text style={styles.txMeta}>
-                          {currentAssetSnapshot.total > 0
-                            ? `Hiện có ${formatCurrency(currentAssetSnapshot.total)} · ${
-                                reached
-                                  ? 'đã đạt mục tiêu'
-                                  : `còn thiếu ${formatCurrency(goal.remaining)}`
-                              }`
-                            : 'Chưa cập nhật tài sản hiện có'}
-                        </Text>
-                        {currentAssetSnapshot.total > 0 && !reached && goal.monthlyNeed > 0 ? (
-                          <Text style={styles.txMeta}>
-                            Cần tăng khoảng {formatCurrency(goal.monthlyNeed)} / tháng.
-                          </Text>
-                        ) : null}
-                        {goal.note ? (
-                          <Text style={styles.txNote} numberOfLines={2}>
-                            {goal.note}
-                          </Text>
-                        ) : null}
-                        <Pressable
-                          style={styles.assetGoalDeleteBtn}
-                          onPress={() => handleDisableAssetGoal(goal.id)}
-                        >
-                          <Text style={styles.assetGoalDeleteText}>
-                            Xóa mục tiêu
-                          </Text>
-                        </Pressable>
-                      </View>
-                    );
-                  })
-                )}
-              </View>
-            </View>
-          </View>
+        <TaiSanTab
+          assetAiBusy={assetAiBusy}
+          assetAiError={assetAiError}
+          assetAiStatus={assetAiStatus}
+          assetAiText={assetAiText}
+          assetGoalAiBusy={assetGoalAiBusy}
+          assetGoalAiError={assetGoalAiError}
+          assetGoalAiStatus={assetGoalAiStatus}
+          assetGoalAiText={assetGoalAiText}
+          assetGoalRows={assetGoalRows}
+          currentAssetSnapshot={currentAssetSnapshot}
+          EXPENSE_IMAGES={EXPENSE_IMAGES}
+          formatCurrency={formatCurrency}
+          handleAssetAiNote={handleAssetAiNote}
+          handleAssetGoalAiNote={handleAssetGoalAiNote}
+          handleDeleteAsset={handleDeleteAsset}
+          handleDisableAssetGoal={handleDisableAssetGoal}
+          handleEditAsset={handleEditAsset}
+          monthsLeftLabel={monthsLeftLabel}
+          setAssetAiError={setAssetAiError}
+          setAssetAiStatus={setAssetAiStatus}
+          setAssetAiText={setAssetAiText}
+          setAssetGoalAiError={setAssetGoalAiError}
+          setAssetGoalAiStatus={setAssetGoalAiStatus}
+          setAssetGoalAiText={setAssetGoalAiText}
+          setSelectedAssetDetailId={setSelectedAssetDetailId}
+          styles={styles}
+        />
           ) : null}
 
           {activeLedgerTab === 'jars' ? (
-          <View style={styles.jarCard}>
-            <View style={styles.aiHeaderRow}>
-              <View style={styles.jarAvatar}>
-                <Image
-                  source={EXPENSE_IMAGES.jars}
-                  style={styles.expenseSectionIcon}
-                  resizeMode="contain"
-                />
-              </View>
-              <View style={styles.aiHeaderCopy}>
-                <Text style={styles.aiTitle}>Chiến lược chia hũ</Text>
-                <Text style={styles.aiSubtitle}>
-                  AI giúp chia % thu nhập tháng: thiết yếu, tích lũy, đầu tư, đi chơi người yêu.
-                </Text>
-              </View>
-            </View>
-
-            <TextInput
-              value={jarAiText}
-              onChangeText={(v) => {
-                setJarAiText(v);
-                setJarAiError('');
-                setJarAiStatus('');
-              }}
-              placeholder="lên chiến lược: 50% thiết yếu, 20% tích lũy, 10% đi chơi người yêu"
-              placeholderTextColor="#6f6a7d"
-              style={[styles.input, styles.aiInput]}
-              multiline
-              editable={!jarAiBusy}
-            />
-            {jarAiError ? <Text style={styles.errorText}>{jarAiError}</Text> : null}
-            {jarAiStatus ? (
-              <Text style={styles.jarStatusText}>{jarAiStatus}</Text>
-            ) : null}
-            <Pressable
-              style={[styles.jarSubmitBtn, jarAiBusy && styles.disabledBtn]}
-              onPress={handleJarAiNote}
-              disabled={jarAiBusy}
-            >
-              {jarAiBusy ? (
-                <ActivityIndicator color="#05130e" />
-              ) : (
-                <Text style={styles.jarSubmitText}>AI lên chiến lược hũ</Text>
-              )}
-            </Pressable>
-
-            <View style={styles.jarSummaryBox}>
-              <Text style={styles.txMeta}>
-                Tổng thu tháng này: {formatCurrency(totals.income)} · đã phân bổ{' '}
-                {Math.round(jarPercentTotal * 10) / 10}%
-              </Text>
-              {jarPercentTotal > 100 ? (
-                <Text style={styles.errorText}>
-                  Tổng hũ đang vượt 100%, nên nhờ AI cân lại tỷ lệ.
-                </Text>
-              ) : null}
-            </View>
-
-            <View style={styles.budgetList}>
-              {activeJarRows.length === 0 ? (
-                <Text style={styles.emptyText}>Chưa có hũ tiền nào.</Text>
-              ) : (
-                activeJarRows.map((jar) => {
-                  const tracked = jar.trackingMode === 'categories';
-                  const manual = jar.trackingMode === 'manual';
-                  const over = jar.spent > jar.allocated;
-                  const percent = Math.round((jar.progress || 0) * 100);
-                  const trackingLabel = tracked
-                    ? jar.categoryInfos.length > 0
-                      ? `${jar.categoryInfos.length} danh mục`
-                      : 'chưa chọn danh mục'
-                    : 'ghi thủ công theo tháng';
-                  return (
-                    <View key={jar.id} style={styles.jarRow}>
-                      <View style={styles.budgetTopLine}>
-                        <View style={styles.budgetTitleWrap}>
-                          <Text style={styles.jarIcon}>
-                            {jar.priority === 'critical'
-                              ? '🛡️'
-                              : jar.priority === 'nice'
-                                ? '✨'
-                                : '📌'}
-                          </Text>
-                          <View style={styles.budgetNameWrap}>
-                            <Text style={styles.txTitle} numberOfLines={1}>
-                              {jar.label}
-                            </Text>
-                            <Text style={styles.txMeta} numberOfLines={1}>
-                              {jar.percent}% thu nhập
-                              {` · ${trackingLabel}`}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text style={[styles.txAmount, over ? styles.expenseText : styles.incomeText]}>
-                          {formatCurrency(jar.allocated)}
-                        </Text>
-                      </View>
-                      <View style={styles.budgetProgressTrack}>
-                        <View
-                          style={[
-                            styles.jarProgressFill,
-                            over && styles.budgetProgressOver,
-                            { width: `${Math.min(100, percent)}%` },
-                          ]}
-                        />
-                      </View>
-                      <Text style={styles.txMeta}>
-                        {tracked ? 'Đã chi' : 'Đã chuyển'} {formatCurrency(jar.spent)} · còn{' '}
-                        {formatCurrency(jar.remaining)}
-                      </Text>
-                      {tracked && jar.categoryInfos.length > 0 ? (
-                        <Text style={styles.txMeta}>
-                          Tính từ: {jar.categoryInfos.map((cat) => cat.label).join(', ')}
-                        </Text>
-                      ) : null}
-                      {manual && jar.contributionRows.length > 0 ? (
-                        <View style={styles.jarContributionList}>
-                          {jar.contributionRows.slice(0, 3).map((entry) => (
-                            <Text
-                              key={entry.id}
-                              style={styles.paymentText}
-                              numberOfLines={1}
-                            >
-                              - {formatCurrency(entry.amount)} · {entry.note}
-                            </Text>
-                          ))}
-                        </View>
-                      ) : null}
-                      {jar.note ? (
-                        <Text style={styles.txNote} numberOfLines={2}>
-                          {jar.note}
-                        </Text>
-                      ) : null}
-                      <View style={styles.jarActionRow}>
-                        {manual ? (
-                          <Pressable
-                            style={styles.jarDeleteBtn}
-                            onPress={() => handleOpenJarContribution(jar)}
-                          >
-                            <Text style={styles.jarDeleteText}>Ghi tiền</Text>
-                          </Pressable>
-                        ) : null}
-                        <Pressable
-                          style={styles.jarDeleteBtn}
-                          onPress={() => handleEditJar(jar)}
-                        >
-                          <Text style={styles.jarDeleteText}>Sửa hũ</Text>
-                        </Pressable>
-                        <Pressable
-                          style={styles.jarDeleteBtn}
-                          onPress={() => handleDisableJar(jar.id)}
-                        >
-                          <Text style={styles.jarDeleteText}>Xóa hũ</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          </View>
+        <HuTienTab
+          activeJarRows={activeJarRows}
+          EXPENSE_IMAGES={EXPENSE_IMAGES}
+          formatCurrency={formatCurrency}
+          handleDisableJar={handleDisableJar}
+          handleEditJar={handleEditJar}
+          handleJarAiNote={handleJarAiNote}
+          handleOpenJarContribution={handleOpenJarContribution}
+          jarAiBusy={jarAiBusy}
+          jarAiError={jarAiError}
+          jarAiStatus={jarAiStatus}
+          jarAiText={jarAiText}
+          jarPercentTotal={jarPercentTotal}
+          setJarAiError={setJarAiError}
+          setJarAiStatus={setJarAiStatus}
+          setJarAiText={setJarAiText}
+          styles={styles}
+          totals={totals}
+        />
           ) : null}
 
-          {activeLedgerTab === 'transactions' && canAdd ? (
-            <Pressable
-              style={styles.manualToggle}
-              onPress={() => setManualOpen((open) => !open)}
-            >
-              <Text style={styles.manualToggleText}>
-                {manualOpen ? 'Ẩn nhập tay' : 'Nhập tay khi cần'}
-              </Text>
-              <Text style={styles.manualToggleIcon}>{manualOpen ? '−' : '+'}</Text>
-            </Pressable>
-          ) : null}
 
-          {activeLedgerTab === 'transactions' && manualOpen && canAdd ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>{entryTitle}</Text>
-              <TextInput
-                value={draft.description}
-                onChangeText={(v) => updateDraft('description', v)}
-                placeholder={entryPlaceholder}
-                placeholderTextColor="#6f6a7d"
-                style={styles.input}
-              />
-              <TextInput
-                value={draft.amount}
-                onChangeText={(v) => updateDraft('amount', v)}
-                placeholder={amountPlaceholder}
-                placeholderTextColor="#6f6a7d"
-                keyboardType="numeric"
-                style={styles.input}
-              />
 
-              <Text style={styles.fieldLabel}>Danh mục</Text>
-              <Pressable
-                style={styles.categorySummaryRow}
-                onPress={() => setCategoryOpen((open) => !open)}
-              >
-                <View style={styles.selectedCategoryPill}>
-                  <Text
-                    style={[
-                      styles.categoryIcon,
-                      { color: selectedEntryCategory.color },
-                    ]}
-                  >
-                    {selectedEntryCategory.icon}
-                  </Text>
-                  <Text style={styles.selectedCategoryText}>
-                    {selectedEntryCategory.label}
-                  </Text>
-                </View>
-                <Text style={styles.categoryToggleText}>
-                  {categoryOpen ? 'Thu gọn' : 'Mở danh mục'}
-                </Text>
-              </Pressable>
-              {categoryOpen ? (
-                <>
-                  <View style={styles.optionWrap}>
-                    {entryCategories.map((cat) => {
-                      const active = draft.category === cat.id;
-                      return (
-                        <Pressable
-                          key={cat.id}
-                          onPress={() => {
-                            updateDraft('category', cat.id);
-                            setCategoryOpen(false);
-                          }}
-                          style={[
-                            styles.categoryBtn,
-                            active && {
-                              borderColor: cat.color,
-                              backgroundColor: '#171923',
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.categoryIcon, { color: cat.color }]}>
-                            {cat.icon}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.optionText,
-                              active && styles.optionTextActive,
-                            ]}
-                          >
-                            {cat.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                  <View style={styles.categoryAddRow}>
-                    <TextInput
-                      value={categoryDraft}
-                      onChangeText={(v) => {
-                        setError('');
-                        setCategoryDraft(v);
-                      }}
-                      placeholder="Thêm danh mục mới"
-                      placeholderTextColor="#6f6a7d"
-                      style={[styles.input, styles.categoryAddInput]}
-                    />
-                    <Pressable
-                      style={styles.categoryAddBtn}
-                      onPress={handleAddCategory}
-                    >
-                      <Text style={styles.categoryAddText}>Thêm</Text>
-                    </Pressable>
-                  </View>
-                </>
-              ) : null}
 
-              <View style={styles.dateRow}>
-                <TextInput
-                  value={draft.date}
-                  onChangeText={(v) => updateDraft('date', v)}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#6f6a7d"
-                  style={[styles.input, styles.dateInput]}
-                />
-                <TextInput
-                  value={draft.time}
-                  onChangeText={(v) => updateDraft('time', v)}
-                  placeholder="HH:mm"
-                  placeholderTextColor="#6f6a7d"
-                  style={[styles.input, styles.timeInput]}
-                />
-              </View>
 
-              <TextInput
-                value={draft.note}
-                onChangeText={(v) => updateDraft('note', v)}
-                placeholder="Ghi chú tùy chọn"
-                placeholderTextColor="#6f6a7d"
-                style={[styles.input, styles.noteInput]}
-                multiline
-              />
 
-              {error ? <Text style={styles.errorText}>{error}</Text> : null}
-              <Pressable
-                style={[
-                  styles.addBtn,
-                  filter === 'expense' && styles.addExpenseBtn,
-                ]}
-                onPress={handleSubmit}
-              >
-                <Text style={styles.addBtnText}>{entryTitle}</Text>
-              </Pressable>
-            </View>
-          ) : null}
-
-          {activeLedgerTab === 'transactions' ? (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Danh sách giao dịch</Text>
-            {groupedTransactions.length === 0 ? (
-            <Text style={styles.emptyText}>
-              Chưa có giao dịch phù hợp trong tháng này.
-            </Text>
-            ) : (
-              groupedTransactions.map(([dateKey, items]) => (
-                <View key={dateKey} style={styles.dayGroup}>
-                  <Text style={styles.dayTitle}>{getDayLabel(dateKey)}</Text>
-                  {items.map((tx) => {
-                    const cat = categoryById(tx.category, allCategories);
-                    const amount = Number(tx.amount) || 0;
-                    const txDate = getTransactionDate(tx);
-                    const active = editingId === tx.id;
-                    const loanAuto = tx.source === 'loan';
-                    return (
-                      <View
-                        key={tx.id}
-                        style={[styles.txRow, active && styles.txRowEditing]}
-                      >
-                        <View
-                          style={[
-                            styles.txIconWrap,
-                            { borderColor: cat.color, backgroundColor: `${cat.color}22` },
-                          ]}
-                        >
-                          <Text style={[styles.txIcon, { color: cat.color }]}>
-                            {cat.icon}
-                          </Text>
-                        </View>
-                        <View style={styles.txBody}>
-                          <View style={styles.txTopLine}>
-                            <Text style={styles.txTitle} numberOfLines={1}>
-                              {tx.description}
-                            </Text>
-                            <Text
-                              style={[
-                                styles.txAmount,
-                                amount >= 0 ? styles.incomeText : styles.expenseText,
-                              ]}
-                            >
-                              {formatSignedAmount(amount)}
-                            </Text>
-                          </View>
-                          <Text style={styles.txMeta} numberOfLines={1}>
-                            {loanAuto ? 'Vay nợ tự động' : cat.label} ·{' '}
-                            {timeKeyFromDate(txDate)}
-                          </Text>
-                          {tx.note ? (
-                            <Text style={styles.txNote} numberOfLines={2}>
-                              {tx.note}
-                            </Text>
-                          ) : null}
-                        </View>
-                        <View style={styles.txActions}>
-                          {loanAuto ? (
-                            <Pressable
-                              onPress={() => {
-                                const loan = allLoanRecords.find(
-                                  (item) => item.id === tx.loanId
-                                );
-                                if (loan) handleEditLoan(loan);
-                                else setActiveLedgerTab('loans');
-                              }}
-                              hitSlop={8}
-                              style={styles.editBtn}
-                            >
-                              <Text style={styles.editText}>Sửa</Text>
-                            </Pressable>
-                          ) : (
-                            <>
-                              <Pressable
-                                onPress={() => handleEdit(tx)}
-                                hitSlop={8}
-                                style={styles.editBtn}
-                              >
-                                <Text style={styles.editText}>Sửa</Text>
-                              </Pressable>
-                              <Pressable
-                                onPress={() => handleDelete(tx.id)}
-                                hitSlop={10}
-                                style={styles.deleteBtn}
-                              >
-                                <Text style={styles.deleteText}>×</Text>
-                              </Pressable>
-                            </>
-                          )}
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              ))
-            )}
-          </View>
-          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
-      <Modal
-        visible={contributionJarId != null}
-        transparent
-        animationType="fade"
-        onRequestClose={closeJarContributionModal}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Ghi tiền vào hũ</Text>
-              <Pressable onPress={closeJarContributionModal} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseText}>×</Text>
-              </Pressable>
-            </View>
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <TextInput
-                value={jarContributionDraft.amount}
-                onChangeText={(v) => updateJarContributionDraft('amount', v)}
-                placeholder="Số tiền đã chuyển/làm được"
-                placeholderTextColor="#6f6a7d"
-                keyboardType="numeric"
-                style={styles.input}
-              />
-              <TextInput
-                value={jarContributionDraft.note}
-                onChangeText={(v) => updateJarContributionDraft('note', v)}
-                placeholder="Nội dung, ví dụ: chuyển vào tài khoản dự phòng"
-                placeholderTextColor="#6f6a7d"
-                style={[styles.input, styles.noteInput]}
-                multiline
-              />
-              <Text style={styles.txMeta}>
-                Khoản này chỉ tính tiến độ hũ trong {monthLabel(visibleMonth)}, không tạo giao dịch chi tiêu.
-              </Text>
-              {jarContributionError ? (
-                <Text style={styles.errorText}>{jarContributionError}</Text>
-              ) : null}
-              <View style={styles.modalActions}>
-                <Pressable style={styles.modalCancelBtn} onPress={closeJarContributionModal}>
-                  <Text style={styles.modalCancelText}>Hủy</Text>
-                </Pressable>
-                <Pressable style={styles.modalSaveBtn} onPress={handleSaveJarContribution}>
-                  <Text style={styles.addBtnText}>Lưu khoản ghi</Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-      <Modal
-        visible={editingJarId != null}
-        transparent
-        animationType="fade"
-        onRequestClose={closeJarEditModal}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sửa hũ tiền</Text>
-              <Pressable onPress={closeJarEditModal} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseText}>×</Text>
-              </Pressable>
-            </View>
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <TextInput
-                value={jarEditDraft.label}
-                onChangeText={(v) => updateJarEditDraft('label', v)}
-                placeholder="Tên hũ"
-                placeholderTextColor="#6f6a7d"
-                style={styles.input}
-              />
-              <TextInput
-                value={jarEditDraft.percent}
-                onChangeText={(v) => updateJarEditDraft('percent', v)}
-                placeholder="% thu nhập"
-                placeholderTextColor="#6f6a7d"
-                keyboardType="numeric"
-                style={styles.input}
-              />
-              <View style={styles.filterRow}>
-                <Pressable
-                  onPress={() => updateJarEditDraft('trackingMode', 'categories')}
-                  style={[
-                    styles.filterBtn,
-                    jarEditDraft.trackingMode === 'categories' && styles.filterBtnActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.filterText,
-                      jarEditDraft.trackingMode === 'categories' &&
-                        styles.filterTextActive,
-                    ]}
-                  >
-                    Tự tính theo danh mục
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => updateJarEditDraft('trackingMode', 'manual')}
-                  style={[
-                    styles.filterBtn,
-                    jarEditDraft.trackingMode === 'manual' && styles.filterBtnActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.filterText,
-                      jarEditDraft.trackingMode === 'manual' && styles.filterTextActive,
-                    ]}
-                  >
-                    Ghi thủ công
-                  </Text>
-                </Pressable>
-              </View>
-              {jarEditDraft.trackingMode === 'categories' ? (
-                <>
-                  <Pressable
-                    style={styles.categorySummaryRow}
-                    onPress={() => setJarCategoryOpen((open) => !open)}
-                  >
-                    <Text style={styles.selectedCategoryText}>
-                      Đã chọn {jarEditDraft.categoryIds.length} danh mục
-                    </Text>
-                    <Text style={styles.categoryToggleText}>
-                      {jarCategoryOpen ? 'Thu gọn' : 'Mở danh mục'}
-                    </Text>
-                  </Pressable>
-                  {jarCategoryOpen ? (
-                    <View style={styles.optionWrap}>
-                      {categoriesForMode('expense', allCategories).map((cat) => {
-                        const active = jarEditDraft.categoryIds.includes(cat.id);
-                        return (
-                          <Pressable
-                            key={cat.id}
-                            onPress={() => toggleJarCategory(cat.id)}
-                            style={[
-                              styles.categoryBtn,
-                              active && {
-                                borderColor: cat.color,
-                                backgroundColor: '#171923',
-                              },
-                            ]}
-                          >
-                            <Text style={[styles.categoryIcon, { color: cat.color }]}>
-                              {cat.icon}
-                            </Text>
-                            <Text
-                              style={[styles.optionText, active && styles.optionTextActive]}
-                            >
-                              {cat.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  ) : null}
-                </>
-              ) : (
-                <Text style={styles.txMeta}>
-                  Hũ này sẽ tính bằng các khoản bạn bấm Ghi tiền trong từng tháng.
-                </Text>
-              )}
-              <TextInput
-                value={jarEditDraft.note}
-                onChangeText={(v) => updateJarEditDraft('note', v)}
-                placeholder="Ghi chú hũ"
-                placeholderTextColor="#6f6a7d"
-                style={[styles.input, styles.noteInput]}
-                multiline
-              />
-              {jarEditError ? <Text style={styles.errorText}>{jarEditError}</Text> : null}
-              <View style={styles.modalActions}>
-                <Pressable style={styles.modalCancelBtn} onPress={closeJarEditModal}>
-                  <Text style={styles.modalCancelText}>Hủy</Text>
-                </Pressable>
-                <Pressable style={styles.modalSaveBtn} onPress={handleSaveJarEdit}>
-                  <Text style={styles.addBtnText}>Lưu hũ</Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-      <Modal
-        visible={selectedAssetDetail != null}
-        transparent
-        animationType="fade"
-        onRequestClose={closeAssetDetailModal}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {selectedAssetDetail?.label ?? 'Chi tiết tài sản'}
-              </Text>
-              <Pressable onPress={closeAssetDetailModal} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseText}>×</Text>
-              </Pressable>
-            </View>
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              {selectedAssetDetail ? (
-                <>
-                  <View style={styles.assetDetailHero}>
-                    <Text style={styles.assetDetailInfoLabel}>Giá trị hiện tại</Text>
-                    <Text style={styles.assetDetailAmount}>
-                      {formatCurrency(selectedAssetDetail.amount)}
-                    </Text>
-                    <Text style={styles.assetItemSource}>
-                      {selectedAssetDetail.sourceText ||
-                        (selectedAssetDetail.external
-                          ? 'Tài sản ngoài app'
-                          : 'Tài sản tự tính trong app')}
-                    </Text>
-                  </View>
-
-                  {selectedAssetDetail.detailType === 'app_balance' ? (
-                    <View style={styles.assetDetailSection}>
-                      <Text style={styles.assetDetailHeading}>Các tháng tích được</Text>
-                      {appAssetMonthRows.length === 0 ? (
-                        <Text style={styles.txMeta}>Chưa có giao dịch để tách theo tháng.</Text>
-                      ) : (
-                        appAssetMonthRows.map((row) => (
-                          <View key={row.monthKey} style={styles.assetMonthRow}>
-                            <View style={styles.assetItemCopy}>
-                              <Text style={styles.assetMonthTitle}>
-                                {monthLabel(row.monthKey)}
-                              </Text>
-                              <Text style={styles.assetMonthMeta}>
-                                Thu {formatCurrency(row.income)} · chi{' '}
-                                {formatCurrency(row.expense)} · {row.count} giao dịch
-                              </Text>
-                              <Text style={styles.assetMonthMeta}>
-                                Lũy kế đến tháng này {formatCurrency(row.cumulative)}
-                              </Text>
-                            </View>
-                            <Text
-                              style={[
-                                styles.assetMonthAmount,
-                                row.balance >= 0 ? styles.incomeText : styles.expenseText,
-                              ]}
-                            >
-                              {formatSignedAmount(row.balance)}
-                            </Text>
-                          </View>
-                        ))
-                      )}
-                    </View>
-                  ) : null}
-
-                  {selectedAssetDetail.detailType === 'loan_group' ? (
-                    <View style={styles.assetDetailSection}>
-                      <Text style={styles.assetDetailHeading}>Các khoản bên trong</Text>
-                      {Array.isArray(selectedAssetDetail.subItems) &&
-                      selectedAssetDetail.subItems.length > 0 ? (
-                        selectedAssetDetail.subItems.map((item) => (
-                          <View key={item.id} style={styles.assetMonthRow}>
-                            <View style={styles.assetItemCopy}>
-                              <Text style={styles.assetMonthTitle}>{item.label}</Text>
-                              <Text style={styles.assetMonthMeta}>{item.note}</Text>
-                            </View>
-                            <Text style={styles.assetMonthAmount}>
-                              {formatCurrency(item.amount)}
-                            </Text>
-                          </View>
-                        ))
-                      ) : (
-                        <Text style={styles.txMeta}>Không còn khoản đang mở.</Text>
-                      )}
-                    </View>
-                  ) : null}
-
-                  {selectedAssetDetail.detailType === 'external_asset' ? (
-                    <View style={styles.assetDetailSection}>
-                      <View style={styles.assetDetailInfoRow}>
-                        <Text style={styles.assetDetailInfoLabel}>Nơi lưu</Text>
-                        <Text style={styles.assetDetailInfoValue}>
-                          {selectedAssetDetail.location || 'Chưa ghi nơi lưu'}
-                        </Text>
-                      </View>
-                      <View style={styles.assetDetailInfoRow}>
-                        <Text style={styles.assetDetailInfoLabel}>Ghi chú</Text>
-                        <Text style={styles.assetDetailInfoValue}>
-                          {selectedAssetDetail.note || 'Chưa có ghi chú'}
-                        </Text>
-                      </View>
-                    </View>
-                  ) : null}
-
-                  {selectedAssetDetail.detailType === 'loan_item' && selectedAssetDetail.note ? (
-                    <View style={styles.assetDetailSection}>
-                      <Text style={styles.assetDetailHeading}>Thông tin khoản</Text>
-                      <Text style={styles.assetDetailInfoValue}>
-                        {selectedAssetDetail.note}
-                      </Text>
-                    </View>
-                  ) : null}
-                </>
-              ) : null}
-              <View style={styles.modalActions}>
-                <Pressable style={styles.modalCancelBtn} onPress={closeAssetDetailModal}>
-                  <Text style={styles.modalCancelText}>Đóng</Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-      <Modal
-        visible={editingAssetId != null}
-        transparent
-        animationType="fade"
-        onRequestClose={closeAssetEditModal}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sửa tài sản ngoài app</Text>
-              <Pressable onPress={closeAssetEditModal} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseText}>×</Text>
-              </Pressable>
-            </View>
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <TextInput
-                value={assetEditDraft.label}
-                onChangeText={(v) => updateAssetEditDraft('label', v)}
-                placeholder="Tên tài sản, ví dụ: Đầu tư coin"
-                placeholderTextColor="#6f6a7d"
-                style={styles.input}
-              />
-              <TextInput
-                value={assetEditDraft.amount}
-                onChangeText={(v) => updateAssetEditDraft('amount', v)}
-                placeholder="Giá trị tài sản"
-                placeholderTextColor="#6f6a7d"
-                keyboardType="numeric"
-                style={styles.input}
-              />
-              <TextInput
-                value={assetEditDraft.location}
-                onChangeText={(v) => updateAssetEditDraft('location', v)}
-                placeholder="Nơi lưu, ví dụ: Binance, Vietcombank, két sắt"
-                placeholderTextColor="#6f6a7d"
-                style={styles.input}
-              />
-              <TextInput
-                value={assetEditDraft.note}
-                onChangeText={(v) => updateAssetEditDraft('note', v)}
-                placeholder="Chi tiết / ghi chú, ví dụ: BTC và ETH"
-                placeholderTextColor="#6f6a7d"
-                style={[styles.input, styles.noteInput]}
-                multiline
-              />
-              {assetEditError ? <Text style={styles.errorText}>{assetEditError}</Text> : null}
-              <View style={styles.modalActions}>
-                <Pressable style={styles.modalCancelBtn} onPress={closeAssetEditModal}>
-                  <Text style={styles.modalCancelText}>Hủy</Text>
-                </Pressable>
-                <Pressable style={styles.modalSaveBtn} onPress={handleSaveAssetEdit}>
-                  <Text style={styles.addBtnText}>Lưu tài sản</Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-      <Modal
-        visible={pendingAiTransactions.length > 0}
-        transparent
-        animationType="fade"
-        onRequestClose={closeAiCategoryConfirm}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <View style={styles.aiConfirmTitleWrap}>
-                <Text style={styles.modalTitle}>Xác nhận danh mục AI</Text>
-                <Text style={styles.aiConfirmSubtitle}>
-                  Chọn đúng danh mục để AI học cho lần sau.
-                </Text>
-              </View>
-              <Pressable onPress={closeAiCategoryConfirm} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseText}>×</Text>
-              </Pressable>
-            </View>
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              {pendingAiTransactions.map((tx, index) => {
-                const selected = categoryById(tx.category, allCategories);
-                const mode = Number(tx.amount) >= 0 ? 'income' : 'expense';
-                const allowedCategories = categoriesForMode(mode, allCategories);
-                const suggestedIds = Array.from(
-                  new Set([tx.category, ...(tx.candidateCategoryIds ?? [])])
-                ).slice(0, 3);
-                const shownCategories =
-                  expandedAiCategoryIndex === index
-                    ? allowedCategories
-                    : suggestedIds.map((id) => categoryById(id, allCategories));
-                return (
-                  <View key={tx.id} style={styles.aiConfirmRow}>
-                    <View style={styles.txTopLine}>
-                      <Text style={styles.txTitle} numberOfLines={2}>
-                        {tx.description}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.txAmount,
-                          Number(tx.amount) >= 0 ? styles.incomeText : styles.expenseText,
-                        ]}
-                      >
-                        {formatSignedAmount(Number(tx.amount) || 0)}
-                      </Text>
-                    </View>
-                    <Text style={styles.aiConfirmMeta}>
-                      AI chọn: {selected.label} · chắc chắn{' '}
-                      {Math.round((Number(tx.aiConfidence) || 0) * 100)}%
-                    </Text>
-                    <View style={styles.optionWrap}>
-                      {shownCategories.map((cat) => {
-                        const active = cat.id === tx.category;
-                        return (
-                          <Pressable
-                            key={cat.id}
-                            onPress={() => updatePendingAiCategory(index, cat.id)}
-                            style={[
-                              styles.categoryBtn,
-                              active && {
-                                borderColor: cat.color,
-                                backgroundColor: '#171923',
-                              },
-                            ]}
-                          >
-                            <Text style={[styles.categoryIcon, { color: cat.color }]}>
-                              {cat.icon}
-                            </Text>
-                            <Text
-                              style={[styles.optionText, active && styles.optionTextActive]}
-                            >
-                              {cat.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                    <Pressable
-                      style={styles.aiShowAllBtn}
-                      onPress={() =>
-                        setExpandedAiCategoryIndex((current) =>
-                          current === index ? null : index
-                        )
-                      }
-                    >
-                      <Text style={styles.aiShowAllText}>
-                        {expandedAiCategoryIndex === index
-                          ? 'Thu gọn danh mục'
-                          : 'Mở tất cả danh mục'}
-                      </Text>
-                    </Pressable>
-                  </View>
-                );
-              })}
-              <View style={styles.modalActions}>
-                <Pressable style={styles.modalCancelBtn} onPress={closeAiCategoryConfirm}>
-                  <Text style={styles.modalCancelText}>Hủy</Text>
-                </Pressable>
-                <Pressable style={styles.modalSaveBtn} onPress={handleConfirmAiCategories}>
-                  <Text style={styles.addBtnText}>Xác nhận và lưu</Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-      <Modal
-        visible={editingLoanId != null}
-        transparent
-        animationType="fade"
-        onRequestClose={closeLoanEditModal}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sửa khoản vay nợ</Text>
-              <Pressable onPress={closeLoanEditModal} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseText}>×</Text>
-              </Pressable>
-            </View>
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <Text style={styles.fieldLabel}>Loại khoản</Text>
-              <View style={styles.optionWrap}>
-                {LOAN_TYPES.map((item) => {
-                  const active = loanEditDraft.type === item.id;
-                  return (
-                    <Pressable
-                      key={item.id}
-                      onPress={() => updateLoanEditDraft('type', item.id)}
-                      style={[styles.categoryBtn, active && styles.loanTypeBtnActive]}
-                    >
-                      <Text style={[styles.optionText, active && styles.optionTextActive]}>
-                        {item.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              <TextInput
-                value={loanEditDraft.person}
-                onChangeText={(v) => updateLoanEditDraft('person', v)}
-                placeholder="Tên người liên quan"
-                placeholderTextColor="#6f6a7d"
-                style={styles.input}
-              />
-              <TextInput
-                value={loanEditDraft.amount}
-                onChangeText={(v) => updateLoanEditDraft('amount', v)}
-                placeholder="Số tiền gốc"
-                placeholderTextColor="#6f6a7d"
-                keyboardType="numeric"
-                style={styles.input}
-              />
-
-              <View style={styles.filterRow}>
-                <Pressable
-                  onPress={() => updateLoanEditDraft('dateUnknown', false)}
-                  style={[
-                    styles.filterBtn,
-                    !loanEditDraft.dateUnknown && styles.filterBtnActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.filterText,
-                      !loanEditDraft.dateUnknown && styles.filterTextActive,
-                    ]}
-                  >
-                    Có ngày cụ thể
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => updateLoanEditDraft('dateUnknown', true)}
-                  style={[
-                    styles.filterBtn,
-                    loanEditDraft.dateUnknown && styles.filterBtnActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.filterText,
-                      loanEditDraft.dateUnknown && styles.filterTextActive,
-                    ]}
-                  >
-                    Vay ngày xưa
-                  </Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.dateRow}>
-                <TextInput
-                  value={loanEditDraft.date}
-                  onChangeText={(v) => updateLoanEditDraft('date', v)}
-                  placeholder="Ngày vay: YYYY-MM-DD"
-                  placeholderTextColor="#6f6a7d"
-                  editable={!loanEditDraft.dateUnknown}
-                  style={[
-                    styles.input,
-                    styles.dateInput,
-                    loanEditDraft.dateUnknown && styles.disabledInput,
-                  ]}
-                />
-                <TextInput
-                  value={loanEditDraft.dueDate}
-                  onChangeText={(v) => updateLoanEditDraft('dueDate', v)}
-                  placeholder="Hạn trả (tùy chọn)"
-                  placeholderTextColor="#6f6a7d"
-                  style={[styles.input, styles.dateInput]}
-                />
-              </View>
-
-              <TextInput
-                value={loanEditDraft.note}
-                onChangeText={(v) => updateLoanEditDraft('note', v)}
-                placeholder="Nội dung / ghi chú"
-                placeholderTextColor="#6f6a7d"
-                style={[styles.input, styles.noteInput]}
-                multiline
-              />
-
-              {loanEditError ? <Text style={styles.errorText}>{loanEditError}</Text> : null}
-              <View style={styles.modalActions}>
-                <Pressable style={styles.modalCancelBtn} onPress={closeLoanEditModal}>
-                  <Text style={styles.modalCancelText}>Hủy</Text>
-                </Pressable>
-                <Pressable style={styles.modalSaveBtn} onPress={handleSaveLoanEdit}>
-                  <Text style={styles.addBtnText}>Lưu khoản vay nợ</Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-      <Modal
-        visible={editingBudgetId != null}
-        transparent
-        animationType="fade"
-        onRequestClose={closeBudgetEditModal}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sửa ngân sách</Text>
-              <Pressable onPress={closeBudgetEditModal} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseText}>×</Text>
-              </Pressable>
-            </View>
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <Text style={styles.fieldLabel}>Danh mục</Text>
-              <Pressable
-                style={styles.categorySummaryRow}
-                onPress={() => setBudgetEditCategoryOpen((open) => !open)}
-              >
-                {(() => {
-                  const cat = categoryById(budgetEditDraft.category, allCategories);
-                  return (
-                    <Text style={[styles.selectedCategoryText, { color: cat.color }]}>
-                      {cat.icon} {cat.label}
-                    </Text>
-                  );
-                })()}
-                <Text style={styles.categoryToggleText}>
-                  {budgetEditCategoryOpen ? 'Thu gọn ▲' : 'Đổi danh mục ▼'}
-                </Text>
-              </Pressable>
-              {budgetEditCategoryOpen ? (
-                <View style={styles.optionWrap}>
-                  {categoriesForMode('expense', allCategories).map((cat) => {
-                    const active = budgetEditDraft.category === cat.id;
-                    return (
-                      <Pressable
-                        key={cat.id}
-                        onPress={() => {
-                          updateBudgetEditDraft('category', cat.id);
-                          setBudgetEditCategoryOpen(false);
-                        }}
-                        style={[
-                          styles.categoryBtn,
-                          active && {
-                            borderColor: cat.color,
-                            backgroundColor: '#171923',
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.categoryIcon, { color: cat.color }]}>
-                          {cat.icon}
-                        </Text>
-                        <Text
-                          style={[styles.optionText, active && styles.optionTextActive]}
-                        >
-                          {cat.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
-
-              <Text style={styles.fieldLabel}>Chu kỳ</Text>
-              <View style={[styles.filterRow, { marginBottom: 12 }]}>
-                {[
-                  { id: 'daily', label: 'Ngày' },
-                  { id: 'weekly', label: 'Tuần' },
-                  { id: 'monthly', label: 'Tháng' },
-                ].map((opt) => (
-                  <Pressable
-                    key={opt.id}
-                    onPress={() => updateBudgetEditDraft('period', opt.id)}
-                    style={[
-                      styles.filterBtn,
-                      budgetEditDraft.period === opt.id && styles.filterBtnActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterText,
-                        budgetEditDraft.period === opt.id && styles.filterTextActive,
-                      ]}
-                    >
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <TextInput
-                value={budgetEditDraft.limit}
-                onChangeText={(v) => updateBudgetEditDraft('limit', v)}
-                placeholder="Số tiền giới hạn"
-                placeholderTextColor="#6f6a7d"
-                keyboardType="numeric"
-                style={styles.input}
-              />
-              <TextInput
-                value={budgetEditDraft.note}
-                onChangeText={(v) => updateBudgetEditDraft('note', v)}
-                placeholder="Ghi chú (tuỳ chọn)"
-                placeholderTextColor="#6f6a7d"
-                style={[styles.input, styles.noteInput]}
-                multiline
-              />
-              {budgetEditError ? (
-                <Text style={styles.errorText}>{budgetEditError}</Text>
-              ) : null}
-              <View style={styles.modalActions}>
-                <Pressable style={styles.modalCancelBtn} onPress={closeBudgetEditModal}>
-                  <Text style={styles.modalCancelText}>Hủy</Text>
-                </Pressable>
-                <Pressable style={styles.modalSaveBtn} onPress={handleSaveBudgetEdit}>
-                  <Text style={styles.addBtnText}>Lưu ngân sách</Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-      <Modal
-        visible={isEditing}
-        transparent
-        animationType="fade"
-        onRequestClose={closeEditModal}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{editTitle}</Text>
-              <Pressable onPress={closeEditModal} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseText}>×</Text>
-              </Pressable>
-            </View>
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              <View style={styles.filterRow}>
-                {FILTERS.filter((item) => item.id !== 'all').map((item) => (
-                  <Pressable
-                    key={item.id}
-                    onPress={() => handleEditModeChange(item.id)}
-                    style={[
-                      styles.filterBtn,
-                      editMode === item.id && styles.filterBtnActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterText,
-                        editMode === item.id && styles.filterTextActive,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <TextInput
-                value={editDraft.description}
-                onChangeText={(v) => updateEditDraft('description', v)}
-                placeholder="Tên/mô tả giao dịch"
-                placeholderTextColor="#6f6a7d"
-                style={styles.input}
-              />
-              <TextInput
-                value={editDraft.amount}
-                onChangeText={(v) => updateEditDraft('amount', v)}
-                placeholder="Số tiền"
-                placeholderTextColor="#6f6a7d"
-                keyboardType="numeric"
-                style={styles.input}
-              />
-
-              <Text style={styles.fieldLabel}>Danh mục</Text>
-              <Pressable
-                style={styles.categorySummaryRow}
-                onPress={() => setEditCategoryOpen((open) => !open)}
-              >
-                <View style={styles.selectedCategoryPill}>
-                  <Text
-                    style={[
-                      styles.categoryIcon,
-                      { color: selectedEditCategory.color },
-                    ]}
-                  >
-                    {selectedEditCategory.icon}
-                  </Text>
-                  <Text style={styles.selectedCategoryText}>
-                    {selectedEditCategory.label}
-                  </Text>
-                </View>
-                <Text style={styles.categoryToggleText}>
-                  {editCategoryOpen ? 'Thu gọn' : 'Mở danh mục'}
-                </Text>
-              </Pressable>
-              {editCategoryOpen ? (
-                <View style={styles.optionWrap}>
-                  {editCategories.map((cat) => {
-                    const active = editDraft.category === cat.id;
-                    return (
-                      <Pressable
-                        key={cat.id}
-                        onPress={() => {
-                          updateEditDraft('category', cat.id);
-                          setEditCategoryOpen(false);
-                        }}
-                        style={[
-                          styles.categoryBtn,
-                          active && {
-                            borderColor: cat.color,
-                            backgroundColor: '#171923',
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.categoryIcon, { color: cat.color }]}>
-                          {cat.icon}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.optionText,
-                            active && styles.optionTextActive,
-                          ]}
-                        >
-                          {cat.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
-
-              <View style={styles.dateRow}>
-                <TextInput
-                  value={editDraft.date}
-                  onChangeText={(v) => updateEditDraft('date', v)}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#6f6a7d"
-                  style={[styles.input, styles.dateInput]}
-                />
-                <TextInput
-                  value={editDraft.time}
-                  onChangeText={(v) => updateEditDraft('time', v)}
-                  placeholder="HH:mm"
-                  placeholderTextColor="#6f6a7d"
-                  style={[styles.input, styles.timeInput]}
-                />
-              </View>
-
-              <TextInput
-                value={editDraft.note}
-                onChangeText={(v) => updateEditDraft('note', v)}
-                placeholder="Ghi chú tùy chọn"
-                placeholderTextColor="#6f6a7d"
-                style={[styles.input, styles.noteInput]}
-                multiline
-              />
-
-              {editError ? <Text style={styles.errorText}>{editError}</Text> : null}
-              <View style={styles.modalActions}>
-                <Pressable style={styles.modalCancelBtn} onPress={closeEditModal}>
-                  <Text style={styles.modalCancelText}>Hủy</Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.modalSaveBtn,
-                    editMode === 'expense' && styles.addExpenseBtn,
-                  ]}
-                  onPress={handleSaveEdit}
-                >
-                  <Text style={styles.addBtnText}>Lưu</Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      <GhiTienVaoHu
+        closeJarContributionModal={closeJarContributionModal}
+        contributionJarId={contributionJarId}
+        handleSaveJarContribution={handleSaveJarContribution}
+        jarContributionDraft={jarContributionDraft}
+        jarContributionError={jarContributionError}
+        monthLabel={monthLabel}
+        styles={styles}
+        updateJarContributionDraft={updateJarContributionDraft}
+        visibleMonth={visibleMonth}
+      />
+      <SuaHuTien
+        allCategories={allCategories}
+        categoriesForMode={categoriesForMode}
+        closeJarEditModal={closeJarEditModal}
+        editingJarId={editingJarId}
+        handleSaveJarEdit={handleSaveJarEdit}
+        jarCategoryOpen={jarCategoryOpen}
+        jarEditDraft={jarEditDraft}
+        jarEditError={jarEditError}
+        setJarCategoryOpen={setJarCategoryOpen}
+        styles={styles}
+        toggleJarCategory={toggleJarCategory}
+        updateJarEditDraft={updateJarEditDraft}
+      />
+      <ChiTietTaiSan
+        appAssetMonthRows={appAssetMonthRows}
+        closeAssetDetailModal={closeAssetDetailModal}
+        formatCurrency={formatCurrency}
+        formatSignedAmount={formatSignedAmount}
+        monthLabel={monthLabel}
+        selectedAssetDetail={selectedAssetDetail}
+        styles={styles}
+      />
+      <SuaTaiSan
+        assetEditDraft={assetEditDraft}
+        assetEditError={assetEditError}
+        closeAssetEditModal={closeAssetEditModal}
+        editingAssetId={editingAssetId}
+        handleSaveAssetEdit={handleSaveAssetEdit}
+        styles={styles}
+        updateAssetEditDraft={updateAssetEditDraft}
+      />
+      <XacNhanDanhMucAi
+        allCategories={allCategories}
+        categoriesForMode={categoriesForMode}
+        categoryById={categoryById}
+        closeAiCategoryConfirm={closeAiCategoryConfirm}
+        expandedAiCategoryIndex={expandedAiCategoryIndex}
+        formatSignedAmount={formatSignedAmount}
+        handleConfirmAiCategories={handleConfirmAiCategories}
+        pendingAiTransactions={pendingAiTransactions}
+        setExpandedAiCategoryIndex={setExpandedAiCategoryIndex}
+        styles={styles}
+        updatePendingAiCategory={updatePendingAiCategory}
+      />
+      <SuaVayNo
+        closeLoanEditModal={closeLoanEditModal}
+        editingLoanId={editingLoanId}
+        handleSaveLoanEdit={handleSaveLoanEdit}
+        LOAN_TYPES={LOAN_TYPES}
+        loanEditDraft={loanEditDraft}
+        loanEditError={loanEditError}
+        styles={styles}
+        updateLoanEditDraft={updateLoanEditDraft}
+      />
+      <SuaNganSach
+        allCategories={allCategories}
+        budgetEditCategoryOpen={budgetEditCategoryOpen}
+        budgetEditDraft={budgetEditDraft}
+        budgetEditError={budgetEditError}
+        categoriesForMode={categoriesForMode}
+        categoryById={categoryById}
+        closeBudgetEditModal={closeBudgetEditModal}
+        editingBudgetId={editingBudgetId}
+        handleSaveBudgetEdit={handleSaveBudgetEdit}
+        setBudgetEditCategoryOpen={setBudgetEditCategoryOpen}
+        styles={styles}
+        updateBudgetEditDraft={updateBudgetEditDraft}
+      />
+      <SuaGiaoDich
+        closeEditModal={closeEditModal}
+        editCategories={editCategories}
+        editCategoryOpen={editCategoryOpen}
+        editDraft={editDraft}
+        editError={editError}
+        editMode={editMode}
+        editTitle={editTitle}
+        FILTERS={FILTERS}
+        handleEditModeChange={handleEditModeChange}
+        handleSaveEdit={handleSaveEdit}
+        isEditing={isEditing}
+        selectedEditCategory={selectedEditCategory}
+        setEditCategoryOpen={setEditCategoryOpen}
+        styles={styles}
+        updateEditDraft={updateEditDraft}
+      />
     </SafeAreaView>
   );
 }
