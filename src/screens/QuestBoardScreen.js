@@ -117,7 +117,7 @@ const TABS = [
   { id: 'quest', label: 'Quest', icon: require('../../assets/images/menu_quest.png') },
   { id: 'boss', label: 'Boss', icon: require('../../assets/images/menu_boss.png') },
   { id: 'coach', label: 'Pet', icon: require('../../assets/images/menu_pet.png') },
-  { id: 'expenses', label: 'Chi phí', iconText: '₫' },
+  { id: 'expenses', label: 'Chi phí', icon: require('../../assets/images/menu_expenses.png') },
   { id: 'stats', label: 'Stats', icon: require('../../assets/images/menu_stats.png') },
   { id: 'more', label: 'More', icon: require('../../assets/images/menu_more.png') },
 ];

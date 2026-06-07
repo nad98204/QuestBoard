@@ -6,6 +6,8 @@ import {
   Modal,
   Platform,
   Pressable,
+  Image,
+  ImageBackground,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,6 +24,16 @@ import {
   fetchLoanRecordsFromAI,
   fetchMoneyJarsFromAI,
 } from '../utils/aiCoach';
+
+const EXPENSE_IMAGES = {
+  header: require('../../assets/images/expenses/expense_header_bg.png'),
+  transactions: require('../../assets/images/expenses/expense_transactions.png'),
+  report: require('../../assets/images/expenses/expense_report.png'),
+  loans: require('../../assets/images/expenses/expense_loans.png'),
+  budget: require('../../assets/images/expenses/expense_budget.png'),
+  jars: require('../../assets/images/expenses/expense_jars.png'),
+  assets: require('../../assets/images/expenses/expense_assets.png'),
+};
 
 const DEFAULT_CATEGORIES = [
   { id: 'food', label: 'Ăn uống', icon: '🍜', color: '#f97316', type: 'expense' },
@@ -2383,7 +2395,12 @@ export default function ExpenseScreen({
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.header}>
+          <ImageBackground
+            source={EXPENSE_IMAGES.header}
+            style={styles.header}
+            imageStyle={styles.expenseHeaderBgImage}
+            resizeMode="cover"
+          >
             <View style={styles.monthNav}>
               <Pressable
                 onPress={() => handleNavigateHeader(-1)}
@@ -2670,13 +2687,17 @@ export default function ExpenseScreen({
                 </View>
               </View>
             )}
-          </View>
+          </ImageBackground>
 
           {activeLedgerTab === 'transactions' ? (
           <View style={styles.aiCard}>
             <View style={styles.aiHeaderRow}>
               <View style={styles.aiAvatar}>
-                <Text style={styles.aiAvatarText}>AI</Text>
+                <Image
+                  source={EXPENSE_IMAGES.transactions}
+                  style={styles.expenseSectionIcon}
+                  resizeMode="contain"
+                />
               </View>
               <View style={styles.aiHeaderCopy}>
                 <Text style={styles.aiTitle}>Hôm nay bạn đã chi tiêu gì?</Text>
@@ -2716,7 +2737,11 @@ export default function ExpenseScreen({
           <View style={styles.loanCard}>
             <View style={styles.aiHeaderRow}>
               <View style={styles.loanAvatar}>
-                <Text style={styles.loanAvatarText}>NỢ</Text>
+                <Image
+                  source={EXPENSE_IMAGES.loans}
+                  style={styles.expenseSectionIcon}
+                  resizeMode="contain"
+                />
               </View>
               <View style={styles.aiHeaderCopy}>
                 <Text style={styles.aiTitle}>Sổ vay nợ riêng</Text>
@@ -2863,7 +2888,11 @@ export default function ExpenseScreen({
           <View style={styles.budgetCard}>
             <View style={styles.aiHeaderRow}>
               <View style={styles.budgetAvatar}>
-                <Text style={styles.budgetAvatarText}>BDG</Text>
+                <Image
+                  source={EXPENSE_IMAGES.budget}
+                  style={styles.expenseSectionIcon}
+                  resizeMode="contain"
+                />
               </View>
               <View style={styles.aiHeaderCopy}>
                 <Text style={styles.aiTitle}>Ngân sách chi tiêu</Text>
@@ -2978,7 +3007,11 @@ export default function ExpenseScreen({
           <View style={styles.reportCard}>
             <View style={styles.aiHeaderRow}>
               <View style={styles.reportAvatar}>
-                <Text style={styles.reportAvatarText}>%</Text>
+                <Image
+                  source={EXPENSE_IMAGES.report}
+                  style={styles.expenseSectionIcon}
+                  resizeMode="contain"
+                />
               </View>
               <View style={styles.aiHeaderCopy}>
                 <Text style={styles.aiTitle}>Báo cáo chi tiêu</Text>
@@ -3096,7 +3129,11 @@ export default function ExpenseScreen({
           <View style={styles.assetCard}>
             <View style={styles.aiHeaderRow}>
               <View style={styles.assetAvatar}>
-                <Text style={styles.assetAvatarText}>NET</Text>
+                <Image
+                  source={EXPENSE_IMAGES.assets}
+                  style={styles.expenseSectionIcon}
+                  resizeMode="contain"
+                />
               </View>
               <View style={styles.aiHeaderCopy}>
                 <Text style={styles.aiTitle}>Tổng tài sản cá nhân</Text>
@@ -3331,7 +3368,11 @@ export default function ExpenseScreen({
           <View style={styles.jarCard}>
             <View style={styles.aiHeaderRow}>
               <View style={styles.jarAvatar}>
-                <Text style={styles.jarAvatarText}>JAR</Text>
+                <Image
+                  source={EXPENSE_IMAGES.jars}
+                  style={styles.expenseSectionIcon}
+                  resizeMode="contain"
+                />
               </View>
               <View style={styles.aiHeaderCopy}>
                 <Text style={styles.aiTitle}>Chiến lược chia hũ</Text>
@@ -4434,6 +4475,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     marginBottom: 12,
+    overflow: 'hidden',
+  },
+  expenseHeaderBgImage: {
+    borderRadius: 12,
+    opacity: 0.22,
   },
   monthNav: {
     flexDirection: 'row',
@@ -4628,6 +4674,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginBottom: 12,
+  },
+  expenseSectionIcon: {
+    width: 36,
+    height: 36,
   },
   aiAvatar: {
     width: 40,
