@@ -987,15 +987,35 @@ function normalizeAiMoneyJarsPayload(parsed, params) {
       const percent = Math.max(0, Math.min(100, Number(row.percent) || 0));
       if (!Number.isFinite(percent) || percent <= 0) return null;
       const rawCategory = String(row.categoryId ?? '').trim();
+      const rawCategoryIds = Array.isArray(row.categoryIds)
+        ? row.categoryIds
+        : rawCategory
+          ? [rawCategory]
+          : [];
+      const categoryIds = rawCategoryIds
+        .map((id) => String(id ?? '').trim())
+        .filter((id) => id && id !== 'none')
+        .map((id) => pickBudgetCategoryId(id, categories))
+        .filter((id, index, arr) => id && arr.indexOf(id) === index)
+        .slice(0, 30);
       const category =
-        rawCategory && rawCategory !== 'none'
+        categoryIds[0] ||
+        (rawCategory && rawCategory !== 'none'
           ? pickBudgetCategoryId(rawCategory, categories)
-          : '';
+          : '');
+      const trackingMode =
+        row.trackingMode === 'manual'
+          ? 'manual'
+          : categoryIds.length > 0 || category
+            ? 'categories'
+            : 'manual';
       return {
         action: row.action === 'update' ? 'update' : 'create',
         label,
         percent: Math.round(percent * 100) / 100,
         category,
+        categoryIds: categoryIds.length > 0 ? categoryIds : category ? [category] : [],
+        trackingMode,
         priority: normalizeJarPriority(row.priority),
         note: String(row.note ?? '').trim().slice(0, 200),
       };
@@ -1010,8 +1030,11 @@ Nhiệm vụ: đọc câu tiếng Việt và tạo/sửa chiến lược chia h�
 Khái niệm:
 - Mỗi "hũ" là một khoản phân bổ theo phần trăm tổng thu nhập tháng.
 - Tổng phần trăm nên thực tế. Nếu người dùng yêu cầu "lên chiến lược" mà không nêu đủ, hãy đề xuất các hũ quan trọng.
-- Nếu là hũ dùng để chi tiêu theo danh mục cụ thể, chọn categoryId từ danh sách được phép. Ví dụ hũ "Đi chơi người yêu" dùng categoryId "dating".
-- Nếu là hũ tích lũy/đầu tư/quỹ dự phòng không gắn trực tiếp danh mục chi tiêu thì categoryId là "none".
+- trackingMode "categories": hũ tính tiến độ bằng nhiều danh mục chi tiêu trong tháng. Điền categoryIds từ danh sách được phép.
+- trackingMode "manual": hũ tích lũy/đầu tư/quỹ dự phòng ghi số tiền đã chuyển thủ công. categoryIds để [] và categoryId là "none".
+- Ví dụ hũ "Đi chơi người yêu" dùng trackingMode "categories" và categoryIds ["dating"].
+- Hũ "Thiết yếu" dùng trackingMode "categories" và chọn nhiều danh mục liên quan ăn uống cơ bản, nhà cửa, hóa đơn, đi lại, sức khỏe thiết yếu.
+- Hũ "Dự phòng", "Đầu tư", "Tích lũy" thường dùng trackingMode "manual" trừ khi người dùng yêu cầu tính theo danh mục chi tiêu cụ thể.
 
 Priority:
 - "critical": hũ bắt buộc/thiết yếu/quỹ dự phòng/nợ.
@@ -1033,7 +1056,9 @@ Schema:
       "action": "create",
       "label": "Thiết yếu",
       "percent": 55,
-      "categoryId": "none",
+      "trackingMode": "categories",
+      "categoryId": "food",
+      "categoryIds": ["food", "groceries_market", "housing_rent", "electricity", "water_bill", "internet_bill", "transport", "fuel", "healthcare", "medicine"],
       "priority": "critical",
       "note": "ăn uống, nhà cửa, đi lại cơ bản"
     },
@@ -1041,7 +1066,9 @@ Schema:
       "action": "create",
       "label": "Đi chơi người yêu",
       "percent": 10,
+      "trackingMode": "categories",
       "categoryId": "dating",
+      "categoryIds": ["dating"],
       "priority": "nice",
       "note": "date, ăn tối, xem phim"
     }
@@ -1067,7 +1094,7 @@ export async function fetchMoneyJarsFromAI(params) {
   const jarLines = (Array.isArray(currentJars) ? currentJars : [])
     .map(
       (jar) =>
-        `- ${jar.label}: ${jar.percent}% (${jar.category || 'none'}, ${jar.priority})`
+        `- ${jar.label}: ${jar.percent}% (${jar.trackingMode || 'manual'}, ${Array.isArray(jar.categoryIds) && jar.categoryIds.length > 0 ? jar.categoryIds.join(',') : jar.category || 'none'}, ${jar.priority})`
     )
     .join('\n');
 

@@ -176,6 +176,31 @@ const FILTERS = [
 
 const AI_CATEGORY_CONFIRM_THRESHOLD = 0.78;
 
+const ESSENTIAL_JAR_CATEGORY_IDS = [
+  'food',
+  'breakfast',
+  'lunch',
+  'dinner',
+  'groceries_market',
+  'supermarket_food',
+  'drinks',
+  'transport',
+  'fuel',
+  'parking',
+  'ride_hailing',
+  'public_transport',
+  'housing_rent',
+  'electricity',
+  'water_bill',
+  'internet_bill',
+  'gas_bill',
+  'apartment_fee',
+  'healthcare',
+  'medical_checkup',
+  'medicine',
+  'unexpected_expense',
+];
+
 const LOAN_TYPES = [
   { id: 'lent', label: 'Người khác nợ mình' },
   { id: 'borrowed', label: 'Mình đang nợ' },
@@ -417,7 +442,6 @@ function getTransactionDate(tx) {
 }
 
 function getDayLabel(dateKey) {
-  if (dateKey === 'old-loans') return 'Vay ngày xưa';
   const today = getTodayKey();
   if (dateKey === today) return 'Hôm nay';
   if (dateKey === addDaysToKey(today, -1)) return 'Hôm qua';
@@ -575,6 +599,57 @@ function normalizeText(value, fallback = '') {
   return text || fallback;
 }
 
+function normalizeComparableText(value) {
+  return normalizeText(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/đ/g, 'd');
+}
+
+function getDefaultJarCategoryIds(jar) {
+  const label = normalizeComparableText(jar?.label);
+  const existing = Array.isArray(jar?.categoryIds)
+    ? jar.categoryIds.map((id) => normalizeText(id)).filter(Boolean)
+    : [];
+  if (existing.length > 0) return Array.from(new Set(existing));
+  const category = normalizeText(jar?.category);
+  if (category) return [category];
+  if (label.includes('thiet yeu')) return ESSENTIAL_JAR_CATEGORY_IDS;
+  if (label.includes('nguoi yeu') || label.includes('date')) return ['dating'];
+  return [];
+}
+
+function getDefaultJarTrackingMode(jar, categoryIds) {
+  const label = normalizeComparableText(jar?.label);
+  if (label.includes('thiet yeu')) return 'categories';
+  if (jar?.trackingMode === 'manual') return 'manual';
+  if (jar?.trackingMode === 'categories') return 'categories';
+  if (
+    label.includes('du phong') ||
+    label.includes('dau tu') ||
+    label.includes('tich luy')
+  ) {
+    return 'manual';
+  }
+  return categoryIds.length > 0 ? 'categories' : 'manual';
+}
+
+function buildJarEditDraft(jar) {
+  const categoryIds = getDefaultJarCategoryIds(jar);
+  return {
+    label: normalizeText(jar?.label),
+    percent: String(Math.max(0, Number(jar?.percent) || 0)),
+    trackingMode: getDefaultJarTrackingMode(jar, categoryIds),
+    categoryIds,
+    priority:
+      jar?.priority === 'critical' || jar?.priority === 'nice'
+        ? jar.priority
+        : 'important',
+    note: normalizeText(jar?.note),
+  };
+}
+
 function normalizeLoanPersonKey(value) {
   return String(value ?? '')
     .normalize('NFD')
@@ -706,6 +781,16 @@ export default function ExpenseScreen({
   const [jarAiBusy, setJarAiBusy] = useState(false);
   const [jarAiStatus, setJarAiStatus] = useState('');
   const [jarAiError, setJarAiError] = useState('');
+  const [editingJarId, setEditingJarId] = useState(null);
+  const [jarEditDraft, setJarEditDraft] = useState(() => buildJarEditDraft(null));
+  const [jarEditError, setJarEditError] = useState('');
+  const [jarCategoryOpen, setJarCategoryOpen] = useState(false);
+  const [contributionJarId, setContributionJarId] = useState(null);
+  const [jarContributionDraft, setJarContributionDraft] = useState({
+    amount: '',
+    note: '',
+  });
+  const [jarContributionError, setJarContributionError] = useState('');
   const [assetAiText, setAssetAiText] = useState('');
   const [assetAiBusy, setAssetAiBusy] = useState(false);
   const [assetAiStatus, setAssetAiStatus] = useState('');
@@ -718,7 +803,6 @@ export default function ExpenseScreen({
   const [assetGoalAiStatus, setAssetGoalAiStatus] = useState('');
   const [assetGoalAiError, setAssetGoalAiError] = useState('');
   const [reportMode, setReportMode] = useState('month');
-  const [transactionTimeMode, setTransactionTimeMode] = useState('month');
   const [activeLedgerTab, setActiveLedgerTab] = useState('transactions');
   const canAdd = filter === 'expense' || filter === 'income';
   const isEditing = editingId != null;
@@ -891,20 +975,6 @@ export default function ExpenseScreen({
       ),
     [ledgerTransactions, visibleMonth]
   );
-  const oldLoanTransactions = useMemo(
-    () => loanCashFlowTransactions.filter((tx) => tx.dateUnknown),
-    [loanCashFlowTransactions]
-  );
-  const oldLoanNet = useMemo(
-    () =>
-      allLoanRecords.reduce((sum, loan) => {
-        if (!loan.dateUnknown) return sum;
-        const remaining = getLoanRemainingAmount(loan);
-        return sum + (loan.type === 'borrowed' ? remaining : -remaining);
-      }, 0),
-    [allLoanRecords]
-  );
-
   const totals = useMemo(
     () => {
       const base = monthTransactions.reduce(
@@ -931,9 +1001,7 @@ export default function ExpenseScreen({
   );
 
   const visibleTransactions = useMemo(() => {
-    const source =
-      transactionTimeMode === 'old-loans' ? oldLoanTransactions : monthLedgerTransactions;
-    const list = source.filter((tx) => {
+    const list = monthLedgerTransactions.filter((tx) => {
       const amount = Number(tx.amount) || 0;
       if (filter === 'income') return amount > 0;
       if (filter === 'expense') return amount < 0;
@@ -942,13 +1010,13 @@ export default function ExpenseScreen({
     return [...list].sort(
       (a, b) => getTransactionDate(b).getTime() - getTransactionDate(a).getTime()
     );
-  }, [filter, monthLedgerTransactions, oldLoanTransactions, transactionTimeMode]);
+  }, [filter, monthLedgerTransactions]);
 
   const groupedTransactions = useMemo(() => {
     const groups = new Map();
     for (const tx of visibleTransactions) {
       const date = getTransactionDate(tx);
-      const key = tx.dateUnknown ? 'old-loans' : dateKeyFromDate(date);
+      const key = dateKeyFromDate(date);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(tx);
     }
@@ -1020,20 +1088,43 @@ export default function ExpenseScreen({
     return allMoneyJars
       .filter((jar) => jar.status !== 'disabled')
       .map((jar) => {
-        const categoryInfo = jar.category
-          ? categoryById(jar.category, allCategories)
-          : null;
+        const categoryIds = getDefaultJarCategoryIds(jar);
+        const trackingMode = getDefaultJarTrackingMode(jar, categoryIds);
+        const categoryInfos =
+          trackingMode === 'categories'
+            ? categoryIds.map((id) => categoryById(id, allCategories))
+            : [];
+        const categorySet = new Set(categoryIds);
         const allocated = Math.round((monthlyIncome * (Number(jar.percent) || 0)) / 100);
-        const spent = jar.category
+        const spent = trackingMode === 'categories'
           ? monthTransactions.reduce((sum, tx) => {
               const amount = Number(tx.amount) || 0;
-              if (amount >= 0 || tx.category !== jar.category) return sum;
+              if (amount >= 0 || !categorySet.has(tx.category)) return sum;
               return sum + Math.abs(amount);
             }, 0)
-          : 0;
+          : (Array.isArray(jar.contributions) ? jar.contributions : []).reduce(
+              (sum, entry) =>
+                getMonthKey(parseDateKey(entry?.date) ?? new Date()) === visibleMonth
+                  ? sum + Math.abs(Number(entry?.amount) || 0)
+                  : sum,
+              0
+            );
+        const contributionRows =
+          trackingMode === 'manual'
+            ? (Array.isArray(jar.contributions) ? jar.contributions : [])
+                .filter(
+                  (entry) =>
+                    getMonthKey(parseDateKey(entry?.date) ?? new Date()) === visibleMonth
+                )
+                .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0))
+            : [];
         return {
           ...jar,
-          categoryInfo,
+          categoryIds,
+          categoryInfos,
+          categoryInfo: categoryInfos[0] ?? null,
+          trackingMode,
+          contributionRows,
           allocated,
           spent,
           remaining: Math.max(0, allocated - spent),
@@ -1044,7 +1135,7 @@ export default function ExpenseScreen({
         const order = { critical: 0, important: 1, nice: 2 };
         return (order[a.priority] ?? 1) - (order[b.priority] ?? 1);
       });
-  }, [allMoneyJars, allCategories, monthTransactions, totals.income]);
+  }, [allMoneyJars, allCategories, monthTransactions, totals.income, visibleMonth]);
 
   const jarPercentTotal = useMemo(
     () =>
@@ -1145,8 +1236,7 @@ export default function ExpenseScreen({
   };
 
   const canNavigateHeader =
-    (activeLedgerTab === 'transactions' && transactionTimeMode === 'month') ||
-    activeLedgerTab === 'reports';
+    activeLedgerTab === 'transactions' || activeLedgerTab === 'reports';
   const handleNavigateHeader = (delta) => {
     if (!canNavigateHeader) return;
     const monthDelta =
@@ -1553,6 +1643,8 @@ export default function ExpenseScreen({
             label: jar.label,
             percent: jar.percent,
             category: jar.category,
+            categoryIds: getDefaultJarCategoryIds(jar),
+            trackingMode: getDefaultJarTrackingMode(jar, getDefaultJarCategoryIds(jar)),
             priority: jar.priority,
           })),
       });
@@ -1575,6 +1667,8 @@ export default function ExpenseScreen({
                   ...item,
                   percent: jar.percent,
                   category: jar.category,
+                  categoryIds: jar.categoryIds,
+                  trackingMode: jar.trackingMode,
                   priority: jar.priority,
                   note: normalizeText(jar.note),
                   updatedAt: Date.now(),
@@ -1591,6 +1685,9 @@ export default function ExpenseScreen({
             label: jar.label,
             percent: jar.percent,
             category: jar.category,
+            categoryIds: jar.categoryIds,
+            trackingMode: jar.trackingMode,
+            contributions: [],
             priority: jar.priority,
             note: normalizeText(jar.note),
             status: 'active',
@@ -1613,6 +1710,137 @@ export default function ExpenseScreen({
     } finally {
       setJarAiBusy(false);
     }
+  };
+
+  const closeJarEditModal = () => {
+    setEditingJarId(null);
+    setJarEditDraft(buildJarEditDraft(null));
+    setJarEditError('');
+    setJarCategoryOpen(false);
+  };
+
+  const handleEditJar = (jar) => {
+    setEditingJarId(jar.id);
+    setJarEditDraft(buildJarEditDraft(jar));
+    setJarEditError('');
+    setJarCategoryOpen(false);
+  };
+
+  const updateJarEditDraft = (key, value) => {
+    setJarEditError('');
+    setJarEditDraft((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const toggleJarCategory = (categoryId) => {
+    setJarEditError('');
+    setJarEditDraft((prev) => {
+      const current = Array.isArray(prev.categoryIds) ? prev.categoryIds : [];
+      const exists = current.includes(categoryId);
+      return {
+        ...prev,
+        categoryIds: exists
+          ? current.filter((id) => id !== categoryId)
+          : [...current, categoryId],
+      };
+    });
+  };
+
+  const handleSaveJarEdit = () => {
+    if (!editingJarId) return;
+    const label = normalizeText(jarEditDraft.label);
+    const percent = Number(jarEditDraft.percent);
+    const trackingMode =
+      jarEditDraft.trackingMode === 'categories' ? 'categories' : 'manual';
+    const categoryIds = Array.isArray(jarEditDraft.categoryIds)
+      ? jarEditDraft.categoryIds.filter(Boolean)
+      : [];
+    if (!label) {
+      setJarEditError('Nhập tên hũ.');
+      return;
+    }
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
+      setJarEditError('Phần trăm hũ cần từ 1 đến 100.');
+      return;
+    }
+    if (trackingMode === 'categories' && categoryIds.length === 0) {
+      setJarEditError('Chọn ít nhất một danh mục để hũ tự tính.');
+      return;
+    }
+    onMoneyJarsChange?.(
+      allMoneyJars.map((jar) =>
+        jar.id === editingJarId
+          ? {
+              ...jar,
+              label,
+              percent: Math.round(percent * 100) / 100,
+              trackingMode,
+              categoryIds: trackingMode === 'categories' ? categoryIds : [],
+              category: trackingMode === 'categories' ? categoryIds[0] ?? '' : '',
+              priority: jarEditDraft.priority,
+              note: normalizeText(jarEditDraft.note),
+              updatedAt: Date.now(),
+            }
+          : jar
+      )
+    );
+    closeJarEditModal();
+  };
+
+  const closeJarContributionModal = () => {
+    setContributionJarId(null);
+    setJarContributionDraft({ amount: '', note: '' });
+    setJarContributionError('');
+  };
+
+  const handleOpenJarContribution = (jar) => {
+    setContributionJarId(jar.id);
+    setJarContributionDraft({ amount: '', note: '' });
+    setJarContributionError('');
+  };
+
+  const updateJarContributionDraft = (key, value) => {
+    setJarContributionError('');
+    setJarContributionDraft((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveJarContribution = () => {
+    if (!contributionJarId) return;
+    const amount = parseAmount(jarContributionDraft.amount);
+    const note = normalizeText(jarContributionDraft.note);
+    if (amount == null || amount <= 0) {
+      setJarContributionError('Số tiền phải lớn hơn 0.');
+      return;
+    }
+    if (!note) {
+      setJarContributionError('Nhập nội dung khoản đã chuyển/làm được.');
+      return;
+    }
+    const now = Date.now();
+    const currentMonth = getMonthKey(new Date());
+    const date = visibleMonth === currentMonth ? getTodayKey() : `${visibleMonth}-01`;
+    const entry = {
+      id: `${now}-jar-contribution-${Math.random().toString(36).slice(2, 8)}`,
+      amount: Math.round(Math.abs(amount)),
+      date,
+      note,
+      createdAt: now,
+    };
+    onMoneyJarsChange?.(
+      allMoneyJars.map((jar) =>
+        jar.id === contributionJarId
+          ? {
+              ...jar,
+              trackingMode: 'manual',
+              contributions: [
+                entry,
+                ...(Array.isArray(jar.contributions) ? jar.contributions : []),
+              ],
+              updatedAt: now,
+            }
+          : jar
+      )
+    );
+    closeJarContributionModal();
   };
 
   const handleAssetAiNote = async () => {
@@ -2171,9 +2399,7 @@ export default function ExpenseScreen({
                 <Text style={styles.title}>Note chi phí</Text>
                 <Text style={styles.monthTitle}>
                   {activeLedgerTab === 'transactions'
-                    ? transactionTimeMode === 'old-loans'
-                      ? 'Vay ngày xưa'
-                      : monthLabel(visibleMonth)
+                    ? monthLabel(visibleMonth)
                     : activeLedgerTab === 'loans'
                       ? 'Sổ vay nợ riêng'
                       : activeLedgerTab === 'budgets'
@@ -2312,7 +2538,7 @@ export default function ExpenseScreen({
                     </Text>
                   </View>
                   <View style={styles.totalTile}>
-                    <Text style={styles.totalLabel}>Vay tháng này</Text>
+                    <Text style={styles.totalLabel}>Vay nợ</Text>
                     <Text
                       style={[
                         styles.totalValue,
@@ -2333,41 +2559,6 @@ export default function ExpenseScreen({
                       {formatSignedAmount(totals.balance)}
                     </Text>
                   </View>
-                </View>
-
-                <View style={[styles.filterRow, styles.timeModeRow]}>
-                  <Pressable
-                    onPress={() => setTransactionTimeMode('month')}
-                    style={[
-                      styles.filterBtn,
-                      transactionTimeMode === 'month' && styles.filterBtnActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterText,
-                        transactionTimeMode === 'month' && styles.filterTextActive,
-                      ]}
-                    >
-                      Tháng này
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setTransactionTimeMode('old-loans')}
-                    style={[
-                      styles.filterBtn,
-                      transactionTimeMode === 'old-loans' && styles.filterBtnActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.filterText,
-                        transactionTimeMode === 'old-loans' && styles.filterTextActive,
-                      ]}
-                    >
-                      Vay ngày xưa · {formatSignedAmount(oldLoanNet)}
-                    </Text>
-                  </Pressable>
                 </View>
 
                 <View style={styles.filterRow}>
@@ -2481,7 +2672,7 @@ export default function ExpenseScreen({
             )}
           </View>
 
-          {activeLedgerTab === 'transactions' && transactionTimeMode === 'month' ? (
+          {activeLedgerTab === 'transactions' ? (
           <View style={styles.aiCard}>
             <View style={styles.aiHeaderRow}>
               <View style={styles.aiAvatar}>
@@ -3196,9 +3387,15 @@ export default function ExpenseScreen({
                 <Text style={styles.emptyText}>Chưa có hũ tiền nào.</Text>
               ) : (
                 activeJarRows.map((jar) => {
-                  const tracked = Boolean(jar.categoryInfo);
-                  const over = tracked && jar.spent > jar.allocated;
+                  const tracked = jar.trackingMode === 'categories';
+                  const manual = jar.trackingMode === 'manual';
+                  const over = jar.spent > jar.allocated;
                   const percent = Math.round((jar.progress || 0) * 100);
+                  const trackingLabel = tracked
+                    ? jar.categoryInfos.length > 0
+                      ? `${jar.categoryInfos.length} danh mục`
+                      : 'chưa chọn danh mục'
+                    : 'ghi thủ công theo tháng';
                   return (
                     <View key={jar.id} style={styles.jarRow}>
                       <View style={styles.budgetTopLine}>
@@ -3216,7 +3413,7 @@ export default function ExpenseScreen({
                             </Text>
                             <Text style={styles.txMeta} numberOfLines={1}>
                               {jar.percent}% thu nhập
-                              {tracked ? ` · ${jar.categoryInfo.label}` : ' · tích lũy'}
+                              {` · ${trackingLabel}`}
                             </Text>
                           </View>
                         </View>
@@ -3224,38 +3421,64 @@ export default function ExpenseScreen({
                           {formatCurrency(jar.allocated)}
                         </Text>
                       </View>
-                      {tracked ? (
-                        <>
-                          <View style={styles.budgetProgressTrack}>
-                            <View
-                              style={[
-                                styles.jarProgressFill,
-                                over && styles.budgetProgressOver,
-                                { width: `${Math.min(100, percent)}%` },
-                              ]}
-                            />
-                          </View>
-                          <Text style={styles.txMeta}>
-                            Đã chi {formatCurrency(jar.spent)} · còn{' '}
-                            {formatCurrency(jar.remaining)}
-                          </Text>
-                        </>
-                      ) : (
+                      <View style={styles.budgetProgressTrack}>
+                        <View
+                          style={[
+                            styles.jarProgressFill,
+                            over && styles.budgetProgressOver,
+                            { width: `${Math.min(100, percent)}%` },
+                          ]}
+                        />
+                      </View>
+                      <Text style={styles.txMeta}>
+                        {tracked ? 'Đã chi' : 'Đã chuyển'} {formatCurrency(jar.spent)} · còn{' '}
+                        {formatCurrency(jar.remaining)}
+                      </Text>
+                      {tracked && jar.categoryInfos.length > 0 ? (
                         <Text style={styles.txMeta}>
-                          Gợi ý chuyển vào hũ/tài khoản riêng mỗi tháng.
+                          Tính từ: {jar.categoryInfos.map((cat) => cat.label).join(', ')}
                         </Text>
-                      )}
+                      ) : null}
+                      {manual && jar.contributionRows.length > 0 ? (
+                        <View style={styles.jarContributionList}>
+                          {jar.contributionRows.slice(0, 3).map((entry) => (
+                            <Text
+                              key={entry.id}
+                              style={styles.paymentText}
+                              numberOfLines={1}
+                            >
+                              - {formatCurrency(entry.amount)} · {entry.note}
+                            </Text>
+                          ))}
+                        </View>
+                      ) : null}
                       {jar.note ? (
                         <Text style={styles.txNote} numberOfLines={2}>
                           {jar.note}
                         </Text>
                       ) : null}
-                      <Pressable
-                        style={styles.jarDeleteBtn}
-                        onPress={() => handleDisableJar(jar.id)}
-                      >
-                        <Text style={styles.jarDeleteText}>Xóa hũ</Text>
-                      </Pressable>
+                      <View style={styles.jarActionRow}>
+                        {manual ? (
+                          <Pressable
+                            style={styles.jarDeleteBtn}
+                            onPress={() => handleOpenJarContribution(jar)}
+                          >
+                            <Text style={styles.jarDeleteText}>Ghi tiền</Text>
+                          </Pressable>
+                        ) : null}
+                        <Pressable
+                          style={styles.jarDeleteBtn}
+                          onPress={() => handleEditJar(jar)}
+                        >
+                          <Text style={styles.jarDeleteText}>Sửa hũ</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.jarDeleteBtn}
+                          onPress={() => handleDisableJar(jar.id)}
+                        >
+                          <Text style={styles.jarDeleteText}>Xóa hũ</Text>
+                        </Pressable>
+                      </View>
                     </View>
                   );
                 })
@@ -3417,9 +3640,7 @@ export default function ExpenseScreen({
             <Text style={styles.cardTitle}>Danh sách giao dịch</Text>
             {groupedTransactions.length === 0 ? (
             <Text style={styles.emptyText}>
-              {transactionTimeMode === 'old-loans'
-                ? 'Chưa có khoản vay ngày xưa.'
-                : 'Chưa có giao dịch phù hợp trong tháng này.'}
+              Chưa có giao dịch phù hợp trong tháng này.
             </Text>
             ) : (
               groupedTransactions.map(([dateKey, items]) => (
@@ -3514,6 +3735,203 @@ export default function ExpenseScreen({
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal
+        visible={contributionJarId != null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeJarContributionModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Ghi tiền vào hũ</Text>
+              <Pressable onPress={closeJarContributionModal} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseText}>×</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <TextInput
+                value={jarContributionDraft.amount}
+                onChangeText={(v) => updateJarContributionDraft('amount', v)}
+                placeholder="Số tiền đã chuyển/làm được"
+                placeholderTextColor="#6f6a7d"
+                keyboardType="numeric"
+                style={styles.input}
+              />
+              <TextInput
+                value={jarContributionDraft.note}
+                onChangeText={(v) => updateJarContributionDraft('note', v)}
+                placeholder="Nội dung, ví dụ: chuyển vào tài khoản dự phòng"
+                placeholderTextColor="#6f6a7d"
+                style={[styles.input, styles.noteInput]}
+                multiline
+              />
+              <Text style={styles.txMeta}>
+                Khoản này chỉ tính tiến độ hũ trong {monthLabel(visibleMonth)}, không tạo giao dịch chi tiêu.
+              </Text>
+              {jarContributionError ? (
+                <Text style={styles.errorText}>{jarContributionError}</Text>
+              ) : null}
+              <View style={styles.modalActions}>
+                <Pressable style={styles.modalCancelBtn} onPress={closeJarContributionModal}>
+                  <Text style={styles.modalCancelText}>Hủy</Text>
+                </Pressable>
+                <Pressable style={styles.modalSaveBtn} onPress={handleSaveJarContribution}>
+                  <Text style={styles.addBtnText}>Lưu khoản ghi</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+      <Modal
+        visible={editingJarId != null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeJarEditModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Sửa hũ tiền</Text>
+              <Pressable onPress={closeJarEditModal} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseText}>×</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <TextInput
+                value={jarEditDraft.label}
+                onChangeText={(v) => updateJarEditDraft('label', v)}
+                placeholder="Tên hũ"
+                placeholderTextColor="#6f6a7d"
+                style={styles.input}
+              />
+              <TextInput
+                value={jarEditDraft.percent}
+                onChangeText={(v) => updateJarEditDraft('percent', v)}
+                placeholder="% thu nhập"
+                placeholderTextColor="#6f6a7d"
+                keyboardType="numeric"
+                style={styles.input}
+              />
+              <View style={styles.filterRow}>
+                <Pressable
+                  onPress={() => updateJarEditDraft('trackingMode', 'categories')}
+                  style={[
+                    styles.filterBtn,
+                    jarEditDraft.trackingMode === 'categories' && styles.filterBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterText,
+                      jarEditDraft.trackingMode === 'categories' &&
+                        styles.filterTextActive,
+                    ]}
+                  >
+                    Tự tính theo danh mục
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => updateJarEditDraft('trackingMode', 'manual')}
+                  style={[
+                    styles.filterBtn,
+                    jarEditDraft.trackingMode === 'manual' && styles.filterBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterText,
+                      jarEditDraft.trackingMode === 'manual' && styles.filterTextActive,
+                    ]}
+                  >
+                    Ghi thủ công
+                  </Text>
+                </Pressable>
+              </View>
+              {jarEditDraft.trackingMode === 'categories' ? (
+                <>
+                  <Pressable
+                    style={styles.categorySummaryRow}
+                    onPress={() => setJarCategoryOpen((open) => !open)}
+                  >
+                    <Text style={styles.selectedCategoryText}>
+                      Đã chọn {jarEditDraft.categoryIds.length} danh mục
+                    </Text>
+                    <Text style={styles.categoryToggleText}>
+                      {jarCategoryOpen ? 'Thu gọn' : 'Mở danh mục'}
+                    </Text>
+                  </Pressable>
+                  {jarCategoryOpen ? (
+                    <View style={styles.optionWrap}>
+                      {categoriesForMode('expense', allCategories).map((cat) => {
+                        const active = jarEditDraft.categoryIds.includes(cat.id);
+                        return (
+                          <Pressable
+                            key={cat.id}
+                            onPress={() => toggleJarCategory(cat.id)}
+                            style={[
+                              styles.categoryBtn,
+                              active && {
+                                borderColor: cat.color,
+                                backgroundColor: '#171923',
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.categoryIcon, { color: cat.color }]}>
+                              {cat.icon}
+                            </Text>
+                            <Text
+                              style={[styles.optionText, active && styles.optionTextActive]}
+                            >
+                              {cat.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </>
+              ) : (
+                <Text style={styles.txMeta}>
+                  Hũ này sẽ tính bằng các khoản bạn bấm Ghi tiền trong từng tháng.
+                </Text>
+              )}
+              <TextInput
+                value={jarEditDraft.note}
+                onChangeText={(v) => updateJarEditDraft('note', v)}
+                placeholder="Ghi chú hũ"
+                placeholderTextColor="#6f6a7d"
+                style={[styles.input, styles.noteInput]}
+                multiline
+              />
+              {jarEditError ? <Text style={styles.errorText}>{jarEditError}</Text> : null}
+              <View style={styles.modalActions}>
+                <Pressable style={styles.modalCancelBtn} onPress={closeJarEditModal}>
+                  <Text style={styles.modalCancelText}>Hủy</Text>
+                </Pressable>
+                <Pressable style={styles.modalSaveBtn} onPress={handleSaveJarEdit}>
+                  <Text style={styles.addBtnText}>Lưu hũ</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
       <Modal
         visible={editingAssetId != null}
         transparent
@@ -4685,6 +5103,16 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 99,
     backgroundColor: '#22c55e',
+  },
+  jarContributionList: {
+    marginTop: 6,
+    gap: 2,
+  },
+  jarActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
   },
   jarIcon: {
     fontSize: 15,

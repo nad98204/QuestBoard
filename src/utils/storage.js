@@ -781,15 +781,61 @@ function normalizeMoneyJars(raw) {
         ? Number(jar.createdAt)
         : Date.now() - index;
       const category = String(jar.category ?? '').trim();
+      const categoryIds = Array.isArray(jar.categoryIds)
+        ? jar.categoryIds
+            .map((id) => String(id ?? '').trim())
+            .filter(Boolean)
+            .slice(0, 30)
+        : category
+          ? [category]
+          : [];
+      const trackingMode =
+        jar.trackingMode === 'manual'
+          ? 'manual'
+          : categoryIds.length > 0
+            ? 'categories'
+            : 'manual';
       const priority = ['critical', 'important', 'nice'].includes(jar.priority)
         ? jar.priority
         : 'important';
+      const contributions = (Array.isArray(jar.contributions)
+        ? jar.contributions
+        : []
+      )
+        .map((entry, entryIndex) => {
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            return null;
+          }
+          const amount = Math.abs(Number(entry.amount) || 0);
+          if (!Number.isFinite(amount) || amount <= 0) return null;
+          const fallbackDate = getTodayKey();
+          const date = /^\d{4}-\d{2}-\d{2}$/.test(
+            String(entry.date ?? '').trim()
+          )
+            ? String(entry.date).trim()
+            : fallbackDate;
+          const entryCreatedAt = Number.isFinite(Number(entry.createdAt))
+            ? Number(entry.createdAt)
+            : createdAt + entryIndex + 1;
+          return {
+            id: String(entry.id ?? `${entryCreatedAt}-${entryIndex}`).trim(),
+            amount: Math.round(amount),
+            date,
+            note: String(entry.note ?? entry.label ?? '').trim().slice(0, 180),
+            createdAt: entryCreatedAt,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 300);
 
       return {
         id: String(jar.id ?? `${createdAt}-jar-${index}`).trim(),
         label,
         percent: Math.round(percent * 100) / 100,
         category,
+        categoryIds,
+        trackingMode,
+        contributions,
         priority,
         note: String(jar.note ?? '').trim(),
         status: jar.status === 'disabled' ? 'disabled' : 'active',
