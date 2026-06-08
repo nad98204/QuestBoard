@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Text,
   View,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { addDaysToKey, getTodayKey } from '../utils/rpg';
@@ -197,6 +198,7 @@ const FILTERS = [
   { id: 'all', label: 'Tất cả' },
   { id: 'expense', label: 'Chi tiêu' },
   { id: 'income', label: 'Thu nhập' },
+  { id: 'loan', label: 'Vay nợ' },
 ];
 
 const AI_CATEGORY_CONFIRM_THRESHOLD = 0.78;
@@ -585,6 +587,9 @@ function buildLoanEditDraft(loan) {
     dateUnknown: Boolean(loan?.dateUnknown),
     dueDate: normalizeText(loan?.dueDate),
     note: normalizeText(loan?.note),
+    paymentAmount: '',
+    paymentDate: getTodayKey(),
+    paymentNote: '',
   };
 }
 
@@ -835,6 +840,235 @@ function buildRecurringDraft(item) {
   };
 }
 
+function FinanceHeader({
+  visibleMonth,
+  activeLedgerTab,
+  monthLabel,
+  reportData,
+  handleNavigateHeader,
+  canNavigateHeader,
+}) {
+  return (
+    <View style={styles.financeHeaderContainer}>
+      <View style={styles.monthNavRow}>
+        <Pressable
+          onPress={() => handleNavigateHeader(-1)}
+          style={[styles.navBtnPill, !canNavigateHeader && styles.navBtnDisabled]}
+          disabled={!canNavigateHeader}
+        >
+          <Text style={styles.navBtnPillText}>{'<'}</Text>
+        </Pressable>
+        <Text style={styles.navMonthLabel}>
+          {activeLedgerTab === 'transactions'
+            ? monthLabel(visibleMonth)
+            : activeLedgerTab === 'loans'
+              ? 'Sổ vay nợ riêng'
+              : activeLedgerTab === 'budgets'
+                ? 'Theo dõi ngân sách'
+                : activeLedgerTab === 'reports'
+                  ? reportData.label
+                  : activeLedgerTab === 'assets'
+                    ? 'Tài sản cá nhân'
+                    : 'Chiến lược chia hũ'}
+        </Text>
+        <Pressable
+          onPress={() => handleNavigateHeader(1)}
+          style={[styles.navBtnPill, !canNavigateHeader && styles.navBtnDisabled]}
+          disabled={!canNavigateHeader}
+        >
+          <Text style={styles.navBtnPillText}>{'>'}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function SummaryHeroCard({
+  totals,
+  formatCurrency,
+  formatSignedAmount,
+  EXPENSE_IMAGES,
+}) {
+  return (
+    <ImageBackground
+      source={EXPENSE_IMAGES.header}
+      style={styles.heroCard}
+      imageStyle={styles.heroCardPattern}
+      resizeMode="cover"
+    >
+      <View style={styles.heroCardContent}>
+        <View style={styles.heroCardHeader}>
+          <Text style={styles.heroBalanceText}>
+            {totals.balance >= 0 ? '+' : ''}
+            {formatCurrency(totals.balance)}
+          </Text>
+          <Text style={styles.heroBalanceLabel}>Còn lại tháng này</Text>
+        </View>
+
+        <Image
+          source={EXPENSE_IMAGES.transactions}
+          style={styles.heroChestIcon}
+          resizeMode="contain"
+        />
+      </View>
+
+      <View style={styles.heroDivider} />
+
+      <View style={styles.heroStatsGrid}>
+        <View style={styles.heroStatCol}>
+          <Text style={styles.heroStatLabel}>Thu</Text>
+          <Text style={[styles.heroStatVal, styles.incomeTextFantasy]}>
+            {formatCurrency(totals.income)}
+          </Text>
+        </View>
+        <View style={styles.heroStatDivider} />
+        <View style={styles.heroStatCol}>
+          <Text style={styles.heroStatLabel}>Chi</Text>
+          <Text style={[styles.heroStatVal, styles.expenseTextFantasy]}>
+            {formatCurrency(Math.abs(totals.expense))}
+          </Text>
+        </View>
+        <View style={styles.heroStatDivider} />
+        <View style={styles.heroStatCol}>
+          <Text style={styles.heroStatLabel}>Vay nợ</Text>
+          <Text
+            style={[
+              styles.heroStatVal,
+              totals.loanNet >= 0 ? styles.incomeTextFantasy : styles.expenseTextFantasy,
+            ]}
+          >
+            {formatSignedAmount(totals.loanNet)}
+          </Text>
+        </View>
+      </View>
+    </ImageBackground>
+  );
+}
+
+function TabSummaryCard({
+  activeLedgerTab,
+  totals,
+  loanTotals,
+  budgetRows,
+  reportData,
+  currentAssetSnapshot,
+  activeRecurringRows,
+  jarPercentTotal,
+  formatCurrency,
+  formatSignedAmount,
+  getTodayKey,
+}) {
+  let title1 = '', value1 = '', title2 = '', value2 = '', title3 = '', value3 = '';
+
+  if (activeLedgerTab === 'loans') {
+    title1 = 'Nợ / giữ hộ mình';
+    value1 = formatCurrency(loanTotals.lent + loanTotals.held);
+    title2 = 'Mình đang nợ';
+    value2 = formatCurrency(loanTotals.borrowed);
+  } else if (activeLedgerTab === 'budgets') {
+    title1 = 'Đang theo dõi';
+    value1 = `${budgetRows.length} mục`;
+    title2 = 'Vượt ngân sách';
+    value2 = `${budgetRows.filter((b) => b.spent > b.limit).length} mục`;
+  } else if (activeLedgerTab === 'reports') {
+    title1 = 'Tổng chi';
+    value1 = formatCurrency(reportData.expense);
+    title2 = 'Số danh mục';
+    value2 = `${reportData.categoryRows.length} mục`;
+    title3 = reportData.averageLabel;
+    value3 = formatCurrency(reportData.average);
+  } else if (activeLedgerTab === 'assets') {
+    title1 = 'Tổng tài sản';
+    value1 = formatCurrency(currentAssetSnapshot.total);
+    title2 = 'Ngoài app';
+    value2 = formatCurrency(currentAssetSnapshot.externalTotal);
+  } else if (activeLedgerTab === 'recurring') {
+    title1 = 'Đang theo dõi';
+    value1 = `${activeRecurringRows.length} khoản`;
+    title2 = 'Đến hạn';
+    value2 = `${
+      activeRecurringRows.filter(
+        (r) => r.status === 'active' && r.nextDate <= getTodayKey()
+      ).length
+    } khoản`;
+  } else if (activeLedgerTab === 'jars') {
+    title1 = 'Thu tháng này';
+    value1 = formatCurrency(totals.income);
+    title2 = 'Đã chia';
+    value2 = `${Math.round(jarPercentTotal * 10) / 10}%`;
+  }
+
+  return (
+    <View style={styles.tabSummaryCard}>
+      <View style={styles.tabSummaryRow}>
+        <View style={styles.tabSummaryCol}>
+          <Text style={styles.tabSummaryLabel}>{title1}</Text>
+          <Text style={[styles.tabSummaryVal, styles.incomeTextFantasy]}>{value1}</Text>
+        </View>
+        <View style={styles.tabSummaryDivider} />
+        <View style={styles.tabSummaryCol}>
+          <Text style={styles.tabSummaryLabel}>{title2}</Text>
+          <Text style={[styles.tabSummaryVal, styles.expenseTextFantasy]}>{value2}</Text>
+        </View>
+        {title3 ? (
+          <>
+            <View style={styles.tabSummaryDivider} />
+            <View style={styles.tabSummaryCol}>
+              <Text style={styles.tabSummaryLabel}>{title3}</Text>
+              <Text style={[styles.tabSummaryVal, styles.goldTextFantasy]}>{value3}</Text>
+            </View>
+          </>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function FinanceTabs({ activeLedgerTab, setActiveLedgerTab }) {
+  const tabsList = [
+    { id: 'transactions', label: 'Giao dịch' },
+    { id: 'reports', label: 'Báo cáo' },
+    { id: 'loans', label: 'Vay nợ' },
+    { id: 'budgets', label: 'Ngân sách' },
+    { id: 'jars', label: 'Hũ tiền' },
+    { id: 'assets', label: 'Tài sản' },
+    { id: 'recurring', label: 'Định kỳ' },
+  ];
+
+  return (
+    <View style={styles.financeTabsOuter}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.financeTabsContainer}
+      >
+        {tabsList.map((t) => {
+          const active = activeLedgerTab === t.id;
+          return (
+            <Pressable
+              key={t.id}
+              style={[
+                styles.financeTabBtn,
+                active && styles.financeTabBtnActive,
+              ]}
+              onPress={() => setActiveLedgerTab(t.id)}
+            >
+              <Text
+                style={[
+                  styles.financeTabText,
+                  active && styles.financeTabTextActive,
+                ]}
+              >
+                {t.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
 export default function ExpenseScreen({
   transactions,
   customCategories,
@@ -880,6 +1114,7 @@ export default function ExpenseScreen({
   const [editingLoanId, setEditingLoanId] = useState(null);
   const [loanEditDraft, setLoanEditDraft] = useState(() => buildLoanEditDraft(null));
   const [loanEditError, setLoanEditError] = useState('');
+  const [loanEditMode, setLoanEditMode] = useState('edit');
   const [editingBudgetId, setEditingBudgetId] = useState(null);
   const [budgetEditDraft, setBudgetEditDraft] = useState({ limit: '', period: 'monthly', category: 'food', note: '' });
   const [budgetEditError, setBudgetEditError] = useState('');
@@ -1264,8 +1499,9 @@ export default function ExpenseScreen({
   const visibleTransactions = useMemo(() => {
     const list = monthLedgerTransactions.filter((tx) => {
       const amount = Number(tx.amount) || 0;
-      if (filter === 'income') return amount > 0;
-      if (filter === 'expense') return amount < 0;
+      if (filter === 'income') return amount > 0 && tx.source !== 'loan';
+      if (filter === 'expense') return amount < 0 && tx.source !== 'loan';
+      if (filter === 'loan') return tx.source === 'loan';
       return true;
     });
     return [...list].sort(
@@ -1545,6 +1781,7 @@ export default function ExpenseScreen({
 
   const closeLoanEditModal = () => {
     setEditingLoanId(null);
+    setLoanEditMode('edit');
     setLoanEditError('');
     setLoanEditDraft(buildLoanEditDraft(null));
   };
@@ -2762,8 +2999,9 @@ export default function ExpenseScreen({
     );
   };
 
-  const handleEditLoan = (loan) => {
+  const handleEditLoan = (loan, mode = 'edit') => {
     setEditingLoanId(loan.id);
+    setLoanEditMode(mode === 'payment' ? 'payment' : 'edit');
     setLoanEditDraft(buildLoanEditDraft(loan));
     setLoanEditError('');
   };
@@ -2775,10 +3013,19 @@ export default function ExpenseScreen({
 
   const handleSaveLoanEdit = () => {
     if (!editingLoanId) return;
+    const currentLoan = allLoanRecords.find((loan) => loan.id === editingLoanId);
+    if (!currentLoan) return;
     const person = normalizeText(loanEditDraft.person);
     const amount = parseAmount(loanEditDraft.amount);
     const date = parseDateKey(loanEditDraft.date);
     const dueDate = loanEditDraft.dueDate ? parseDateKey(loanEditDraft.dueDate) : null;
+    const paymentAmountText = normalizeText(loanEditDraft.paymentAmount);
+    const wantsPayment =
+      loanEditMode === 'payment' ||
+      Boolean(paymentAmountText) ||
+      Boolean(normalizeText(loanEditDraft.paymentNote));
+    const paymentAmount = wantsPayment ? parseAmount(paymentAmountText) : null;
+    const paymentDate = wantsPayment ? parseDateKey(loanEditDraft.paymentDate) : null;
 
     if (!person) {
       setLoanEditError('Nhập tên người liên quan.');
@@ -2797,21 +3044,62 @@ export default function ExpenseScreen({
       return;
     }
 
+    const roundedAmount = Math.round(Math.abs(amount));
+    const currentPaidAmount = getLoanPaidAmount(currentLoan);
+    const remainingAmount = Math.max(0, roundedAmount - currentPaidAmount);
+    let nextPayment = null;
+    if (wantsPayment) {
+      if (paymentAmount == null || Math.abs(paymentAmount) <= 0) {
+        setLoanEditError('Nhập số tiền của đợt thu/trả nợ.');
+        return;
+      }
+      if (!paymentDate) {
+        setLoanEditError('Ngày thu/trả nợ cần đúng dạng YYYY-MM-DD.');
+        return;
+      }
+      const roundedPaymentAmount = Math.round(Math.abs(paymentAmount));
+      if (remainingAmount <= 0) {
+        setLoanEditError('Khoản vay nợ này đã tất toán.');
+        return;
+      }
+      if (roundedPaymentAmount > remainingAmount) {
+        setLoanEditError(`Số tiền thu/trả không được vượt quá ${formatCurrency(remainingAmount)}.`);
+        return;
+      }
+      const now = Date.now();
+      nextPayment = {
+        id: `${now}-payment-${Math.random().toString(36).slice(2, 8)}`,
+        amount: roundedPaymentAmount,
+        date: loanEditDraft.paymentDate,
+        note: normalizeText(loanEditDraft.paymentNote),
+        createdAt: now,
+      };
+    }
+
     const next = allLoanRecords.map((loan) => {
       if (loan.id !== editingLoanId) return loan;
-      const paidAmount = getLoanPaidAmount(loan);
-      const settled = paidAmount >= Math.abs(amount);
+      const payments = nextPayment
+        ? [...(Array.isArray(loan.payments) ? loan.payments : []), nextPayment]
+        : Array.isArray(loan.payments)
+          ? loan.payments
+          : [];
+      const paidAmount = payments.reduce(
+        (sum, payment) => sum + Math.abs(Number(payment.amount) || 0),
+        0
+      );
+      const settled = paidAmount >= roundedAmount;
       return {
         ...loan,
         type: loanEditDraft.type,
         person,
-        amount: Math.round(Math.abs(amount)),
+        amount: roundedAmount,
         date: loanEditDraft.dateUnknown ? loan.date || getTodayKey() : loanEditDraft.date,
         dateUnknown: Boolean(loanEditDraft.dateUnknown),
         dueDate: loanEditDraft.dueDate,
         note: normalizeText(loanEditDraft.note),
+        payments,
         status: settled ? 'settled' : 'open',
-        settledAt: settled ? loan.settledAt || Date.now() : null,
+        settledAt: settled ? loan.settledAt || nextPayment?.createdAt || Date.now() : null,
         updatedAt: Date.now(),
       };
     });
@@ -2979,6 +3267,26 @@ export default function ExpenseScreen({
     );
   };
 
+  const handleDuplicate = (tx) => {
+    const payload = {
+      description: tx.description,
+      amount: tx.amount,
+      category: tx.category,
+      dateTime: new Date().toISOString(),
+      note: tx.note || '',
+    };
+    const next = [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        ...payload,
+        createdAt: Date.now(),
+      },
+      ...allTransactions,
+    ];
+    onTransactionsChange(next);
+    Alert.alert('Thành công', 'Đã nhân bản giao dịch.');
+  };
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <KeyboardAvoidingView
@@ -2990,334 +3298,48 @@ export default function ExpenseScreen({
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
         >
-          <ImageBackground
-            source={EXPENSE_IMAGES.header}
-            style={styles.header}
-            imageStyle={styles.expenseHeaderBgImage}
-            resizeMode="cover"
-          >
-            <View style={styles.monthNav}>
-              <Pressable
-                onPress={() => handleNavigateHeader(-1)}
-                style={[
-                  styles.navBtn,
-                  !canNavigateHeader && styles.navBtnDisabled,
-                ]}
-                disabled={!canNavigateHeader}
-              >
-                <Text style={styles.navBtnText}>{'<'}</Text>
-              </Pressable>
-              <View style={styles.monthTitleWrap}>
-                <Text style={styles.title}>Note chi phí</Text>
-                <Text style={styles.monthTitle}>
-                  {activeLedgerTab === 'transactions'
-                    ? monthLabel(visibleMonth)
-                    : activeLedgerTab === 'loans'
-                      ? 'Sổ vay nợ riêng'
-                      : activeLedgerTab === 'budgets'
-                        ? 'Theo dõi ngân sách'
-                        : activeLedgerTab === 'reports'
-                          ? reportData.label
-                          : activeLedgerTab === 'assets'
-                            ? 'Tài sản cá nhân'
-                            : 'Chiến lược chia hũ'}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => handleNavigateHeader(1)}
-                style={[
-                  styles.navBtn,
-                  !canNavigateHeader && styles.navBtnDisabled,
-                ]}
-                disabled={!canNavigateHeader}
-              >
-                <Text style={styles.navBtnText}>{'>'}</Text>
-              </Pressable>
-            </View>
+          {/* Top Header */}
+          <FinanceHeader
+            visibleMonth={visibleMonth}
+            activeLedgerTab={activeLedgerTab}
+            monthLabel={monthLabel}
+            reportData={reportData}
+            handleNavigateHeader={handleNavigateHeader}
+            canNavigateHeader={canNavigateHeader}
+          />
 
-            <View style={styles.ledgerTabs}>
-              <Pressable
-                style={[
-                  styles.ledgerTabBtn,
-                  activeLedgerTab === 'transactions' && styles.ledgerTabActive,
-                ]}
-                onPress={() => setActiveLedgerTab('transactions')}
-              >
-                <Text
-                  style={[
-                    styles.ledgerTabText,
-                    activeLedgerTab === 'transactions' && styles.ledgerTabTextActive,
-                  ]}
-                >
-                  Giao dịch
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.ledgerTabBtn,
-                  activeLedgerTab === 'reports' && styles.ledgerTabActive,
-                ]}
-                onPress={() => setActiveLedgerTab('reports')}
-              >
-                <Text
-                  style={[
-                    styles.ledgerTabText,
-                    activeLedgerTab === 'reports' && styles.ledgerTabTextActive,
-                  ]}
-                >
-                  Báo cáo
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.ledgerTabBtn,
-                  activeLedgerTab === 'loans' && styles.ledgerTabActive,
-                ]}
-                onPress={() => setActiveLedgerTab('loans')}
-              >
-                <Text
-                  style={[
-                    styles.ledgerTabText,
-                    activeLedgerTab === 'loans' && styles.ledgerTabTextActive,
-                  ]}
-                >
-                  Vay nợ
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.ledgerTabBtn,
-                  activeLedgerTab === 'budgets' && styles.ledgerTabActive,
-                ]}
-                onPress={() => setActiveLedgerTab('budgets')}
-              >
-                <Text
-                  style={[
-                    styles.ledgerTabText,
-                    activeLedgerTab === 'budgets' && styles.ledgerTabTextActive,
-                  ]}
-                >
-                  Ngân sách
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.ledgerTabBtn,
-                  activeLedgerTab === 'jars' && styles.ledgerTabActive,
-                ]}
-                onPress={() => setActiveLedgerTab('jars')}
-              >
-                <Text
-                  style={[
-                    styles.ledgerTabText,
-                    activeLedgerTab === 'jars' && styles.ledgerTabTextActive,
-                  ]}
-                >
-                  Hũ tiền
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.ledgerTabBtn,
-                  activeLedgerTab === 'assets' && styles.ledgerTabActive,
-                ]}
-                onPress={() => setActiveLedgerTab('assets')}
-              >
-                <Text
-                  style={[
-                    styles.ledgerTabText,
-                    activeLedgerTab === 'assets' && styles.ledgerTabTextActive,
-                  ]}
-                >
-                  Tài sản
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.ledgerTabBtn,
-                  activeLedgerTab === 'recurring' && styles.ledgerTabActive,
-                ]}
-                onPress={() => setActiveLedgerTab('recurring')}
-              >
-                <Text
-                  style={[
-                    styles.ledgerTabText,
-                    activeLedgerTab === 'recurring' && styles.ledgerTabTextActive,
-                  ]}
-                >
-                  Định kỳ
-                </Text>
-              </Pressable>
-            </View>
+          {/* Overview Hero Card (only on transaction tab) */}
+          {activeLedgerTab === 'transactions' ? (
+            <SummaryHeroCard
+              totals={totals}
+              formatCurrency={formatCurrency}
+              formatSignedAmount={formatSignedAmount}
+              EXPENSE_IMAGES={EXPENSE_IMAGES}
+            />
+          ) : null}
 
-            {activeLedgerTab === 'transactions' ? (
-              <>
-                <View style={styles.totalGrid}>
-                  <View style={styles.totalTile}>
-                    <Text style={styles.totalLabel}>Tổng thu</Text>
-                    <Text style={[styles.totalValue, styles.incomeText]}>
-                      {formatCurrency(totals.income)}
-                    </Text>
-                  </View>
-                  <View style={styles.totalTile}>
-                    <Text style={styles.totalLabel}>Tổng chi</Text>
-                    <Text style={[styles.totalValue, styles.expenseText]}>
-                      {formatCurrency(totals.expense)}
-                    </Text>
-                  </View>
-                  <View style={styles.totalTile}>
-                    <Text style={styles.totalLabel}>Vay nợ</Text>
-                    <Text
-                      style={[
-                        styles.totalValue,
-                        totals.loanNet >= 0 ? styles.incomeText : styles.expenseText,
-                      ]}
-                    >
-                      {formatSignedAmount(totals.loanNet)}
-                    </Text>
-                  </View>
-                  <View style={styles.totalTile}>
-                    <Text style={styles.totalLabel}>Còn lại</Text>
-                    <Text
-                      style={[
-                        styles.totalValue,
-                        totals.balance >= 0 ? styles.incomeText : styles.expenseText,
-                      ]}
-                    >
-                      {formatSignedAmount(totals.balance)}
-                    </Text>
-                  </View>
-                </View>
+          {/* Tab Specific Overview Card (for non-transaction tabs) */}
+          {activeLedgerTab !== 'transactions' ? (
+            <TabSummaryCard
+              activeLedgerTab={activeLedgerTab}
+              totals={totals}
+              loanTotals={loanTotals}
+              budgetRows={budgetRows}
+              reportData={reportData}
+              currentAssetSnapshot={currentAssetSnapshot}
+              activeRecurringRows={activeRecurringRows}
+              jarPercentTotal={jarPercentTotal}
+              formatCurrency={formatCurrency}
+              formatSignedAmount={formatSignedAmount}
+              getTodayKey={getTodayKey}
+            />
+          ) : null}
 
-                <View style={styles.filterRow}>
-                  {FILTERS.map((item) => (
-                    <Pressable
-                      key={item.id}
-                      onPress={() => handleFilterChange(item.id)}
-                      style={[
-                        styles.filterBtn,
-                        filter === item.id && styles.filterBtnActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.filterText,
-                          filter === item.id && styles.filterTextActive,
-                        ]}
-                      >
-                        {item.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </>
-            ) : activeLedgerTab === 'loans' ? (
-              <View style={styles.loanTotalRow}>
-                <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Nợ / giữ hộ mình</Text>
-                  <Text style={[styles.totalValue, styles.incomeText]}>
-                    {formatCurrency(loanTotals.lent + loanTotals.held)}
-                  </Text>
-                </View>
-                <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Mình đang nợ</Text>
-                  <Text style={[styles.totalValue, styles.expenseText]}>
-                    {formatCurrency(loanTotals.borrowed)}
-                  </Text>
-                </View>
-              </View>
-            ) : activeLedgerTab === 'budgets' ? (
-              <View style={styles.loanTotalRow}>
-                <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Đang theo dõi</Text>
-                  <Text style={[styles.totalValue, styles.incomeText]}>
-                    {budgetRows.length} mục
-                  </Text>
-                </View>
-                <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Vượt ngân sách</Text>
-                  <Text style={[styles.totalValue, styles.expenseText]}>
-                    {budgetRows.filter((budget) => budget.spent > budget.limit).length} mục
-                  </Text>
-                </View>
-              </View>
-            ) : activeLedgerTab === 'reports' ? (
-              <View style={styles.totalGrid}>
-                <View style={styles.totalTile}>
-                  <Text style={styles.totalLabel}>Tổng chi</Text>
-                  <Text style={[styles.totalValue, styles.expenseText]}>
-                    {formatCurrency(reportData.expense)}
-                  </Text>
-                </View>
-                <View style={styles.totalTile}>
-                  <Text style={styles.totalLabel}>Số danh mục</Text>
-                  <Text style={[styles.totalValue, styles.incomeText]}>
-                    {reportData.categoryRows.length} mục
-                  </Text>
-                </View>
-                <View style={styles.totalTile}>
-                  <Text style={styles.totalLabel}>{reportData.averageLabel}</Text>
-                  <Text style={[styles.totalValue, styles.expenseText]}>
-                    {formatCurrency(reportData.average)}
-                  </Text>
-                </View>
-              </View>
-            ) : activeLedgerTab === 'assets' ? (
-              <View style={styles.loanTotalRow}>
-                <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Tổng tài sản</Text>
-                  <Text style={[styles.totalValue, styles.incomeText]}>
-                    {formatCurrency(currentAssetSnapshot.total)}
-                  </Text>
-                </View>
-                <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Ngoài app</Text>
-                  <Text style={[styles.totalValue, styles.incomeText]}>
-                    {formatCurrency(currentAssetSnapshot.externalTotal)}
-                  </Text>
-                </View>
-              </View>
-            ) : activeLedgerTab === 'recurring' ? (
-              <View style={styles.loanTotalRow}>
-                <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Đang theo dõi</Text>
-                  <Text style={[styles.totalValue, styles.incomeText]}>
-                    {activeRecurringRows.length} khoản
-                  </Text>
-                </View>
-                <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Đến hạn</Text>
-                  <Text style={[styles.totalValue, styles.expenseText]}>
-                    {
-                      activeRecurringRows.filter(
-                        (r) => r.status === 'active' && r.nextDate <= getTodayKey()
-                      ).length
-                    } khoản
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.loanTotalRow}>
-                <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Thu tháng này</Text>
-                  <Text style={[styles.totalValue, styles.incomeText]}>
-                    {formatCurrency(totals.income)}
-                  </Text>
-                </View>
-                <View style={styles.loanTotalTile}>
-                  <Text style={styles.totalLabel}>Đã chia</Text>
-                  <Text
-                    style={[
-                      styles.totalValue,
-                      jarPercentTotal > 100 ? styles.expenseText : styles.incomeText,
-                    ]}
-                  >
-                    {Math.round(jarPercentTotal * 10) / 10}%
-                  </Text>
-                </View>
-              </View>
-            )}
-          </ImageBackground>
+          {/* Sub-navigation Ledger Tabs */}
+          <FinanceTabs
+            activeLedgerTab={activeLedgerTab}
+            setActiveLedgerTab={setActiveLedgerTab}
+          />
 
           {activeLedgerTab === 'transactions' ? (
         <GiaoDichTab
@@ -3347,6 +3369,9 @@ export default function ExpenseScreen({
           handleAddCategory={handleAddCategory}
           handleAiNote={handleAiNote}
           handleDelete={handleDelete}
+          handleDuplicate={handleDuplicate}
+          handleFilterChange={handleFilterChange}
+          FILTERS={FILTERS}
           handleEdit={handleEdit}
           handleEditLoan={handleEditLoan}
           handleSubmit={handleSubmit}
@@ -3371,6 +3396,7 @@ export default function ExpenseScreen({
           EXPENSE_IMAGES={EXPENSE_IMAGES}
           formatCurrency={formatCurrency}
           formatDateKeyLabel={formatDateKeyLabel}
+          formatSignedAmount={formatSignedAmount}
           getLoanPaidAmount={getLoanPaidAmount}
           getLoanRemainingAmount={getLoanRemainingAmount}
           handleDeleteLoan={handleDeleteLoan}
@@ -3423,6 +3449,7 @@ export default function ExpenseScreen({
           setReportMode={setReportMode}
           styles={styles}
           timeKeyFromDate={timeKeyFromDate}
+          setActiveLedgerTab={setActiveLedgerTab}
         />
           ) : null}
 
@@ -3569,6 +3596,7 @@ export default function ExpenseScreen({
         LOAN_TYPES={LOAN_TYPES}
         loanEditDraft={loanEditDraft}
         loanEditError={loanEditError}
+        loanEditMode={loanEditMode}
         styles={styles}
         updateLoanEditDraft={updateLoanEditDraft}
       />
@@ -3631,7 +3659,7 @@ export default function ExpenseScreen({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#0a0a1a',
+    backgroundColor: '#0E0B1F',
   },
   flex: {
     flex: 1,
@@ -5088,5 +5116,238 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: '#34d399',
+  },
+
+  // -----------------------------------------
+  // REDESIGNED COMPONENTS STYLES
+  // -----------------------------------------
+  financeHeaderContainer: {
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  headerMainTitle: {
+    fontSize: 22,
+    color: '#F6C75A',
+    fontWeight: 'bold',
+    textShadowColor: 'rgba(246, 199, 90, 0.6)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 8,
+  },
+  bellIconContainer: {
+    position: 'relative',
+    padding: 6,
+  },
+  bellIcon: {
+    fontSize: 22,
+    color: '#F6C75A',
+  },
+  bellRedDot: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FB7185',
+  },
+  monthNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+  },
+  navBtnPill: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#17122E',
+    borderWidth: 1.5,
+    borderColor: '#F6C75A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  navBtnPillText: {
+    color: '#F6C75A',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  navMonthLabel: {
+    fontSize: 16,
+    color: '#F8F3E8',
+    fontWeight: 'bold',
+  },
+  // Hero Card Styles
+  heroCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(246, 199, 90, 0.35)',
+    backgroundColor: '#17122E',
+    marginBottom: 16,
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  heroCardPattern: {
+    opacity: 0.12,
+    tintColor: '#8B5CF6',
+  },
+  heroCardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 20,
+    paddingBottom: 12,
+  },
+  heroCardHeader: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  heroBalanceText: {
+    fontSize: 28,
+    color: '#F6C75A',
+    fontWeight: 'bold',
+    textShadowColor: 'rgba(246, 199, 90, 0.5)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 8,
+    marginBottom: 4,
+  },
+  heroBalanceLabel: {
+    fontSize: 12,
+    color: '#A8A0C2',
+    fontWeight: '600',
+  },
+  heroChestIcon: {
+    width: 65,
+    height: 65,
+    alignSelf: 'center',
+  },
+  heroDivider: {
+    height: 1,
+    backgroundColor: 'rgba(246, 199, 90, 0.25)',
+    marginHorizontal: 20,
+  },
+  heroStatsGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    backgroundColor: 'rgba(14, 11, 31, 0.5)',
+  },
+  heroStatCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  heroStatLabel: {
+    fontSize: 10,
+    color: '#A8A0C2',
+    fontWeight: '800',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  heroStatVal: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    fontVariant: ['tabular-nums'],
+  },
+  heroStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(168, 160, 194, 0.2)',
+  },
+  incomeTextFantasy: {
+    color: '#34D399',
+  },
+  expenseTextFantasy: {
+    color: '#FB7185',
+  },
+  goldTextFantasy: {
+    color: '#F6C75A',
+  },
+  // Tab Summary Card
+  tabSummaryCard: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(246, 199, 90, 0.35)',
+    backgroundColor: '#17122E',
+    marginBottom: 16,
+    padding: 16,
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  tabSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  tabSummaryCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  tabSummaryLabel: {
+    fontSize: 10,
+    color: '#A8A0C2',
+    fontWeight: '800',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  tabSummaryVal: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    fontVariant: ['tabular-nums'],
+  },
+  tabSummaryDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(168, 160, 194, 0.2)',
+  },
+  // Finance Tabs Styles
+  financeTabsOuter: {
+    marginBottom: 16,
+  },
+  financeTabsContainer: {
+    paddingHorizontal: 4,
+    gap: 8,
+  },
+  financeTabBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#17122E',
+    borderWidth: 1.5,
+    borderColor: 'rgba(139, 92, 246, 0.25)',
+    marginRight: 6,
+  },
+  financeTabBtnActive: {
+    backgroundColor: '#F6C75A',
+    borderColor: '#FFD66B',
+    shadowColor: '#F6C75A',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  financeTabText: {
+    color: '#A8A0C2',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  financeTabTextActive: {
+    color: '#0E0B1F',
+    fontWeight: '800',
   },
 });

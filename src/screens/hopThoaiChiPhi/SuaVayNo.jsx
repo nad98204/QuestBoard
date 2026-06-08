@@ -16,9 +16,12 @@ export default function SuaVayNo({
   LOAN_TYPES,
   loanEditDraft,
   loanEditError,
+  loanEditMode,
   styles,
   updateLoanEditDraft,
 }) {
+  const isPaymentMode = loanEditMode === 'payment';
+
   return (
     <Modal
       visible={editingLoanId != null}
@@ -32,7 +35,9 @@ export default function SuaVayNo({
       >
         <View style={styles.modalCard}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Sửa khoản vay nợ</Text>
+            <Text style={styles.modalTitle}>
+              {isPaymentMode ? 'Thêm đợt thu / trả nợ' : 'Sửa khoản vay nợ'}
+            </Text>
             <Pressable
               onPress={closeLoanEditModal}
               style={styles.modalCloseBtn}
@@ -153,6 +158,35 @@ export default function SuaVayNo({
               multiline
             />
 
+            {isPaymentMode ? (
+              <>
+                <Text style={styles.fieldLabel}>Đợt thu / trả nợ mới</Text>
+                <TextInput
+                  value={loanEditDraft.paymentAmount}
+                  onChangeText={(v) => updateLoanEditDraft('paymentAmount', v)}
+                  placeholder="Số tiền đã thu / đã trả"
+                  placeholderTextColor="#6f6a7d"
+                  keyboardType="numeric"
+                  style={styles.input}
+                />
+                <TextInput
+                  value={loanEditDraft.paymentDate}
+                  onChangeText={(v) => updateLoanEditDraft('paymentDate', v)}
+                  placeholder="Ngày thu/trả: YYYY-MM-DD"
+                  placeholderTextColor="#6f6a7d"
+                  style={styles.input}
+                />
+                <TextInput
+                  value={loanEditDraft.paymentNote}
+                  onChangeText={(v) => updateLoanEditDraft('paymentNote', v)}
+                  placeholder="Ghi chú đợt thu/trả (tùy chọn)"
+                  placeholderTextColor="#6f6a7d"
+                  style={[styles.input, styles.noteInput]}
+                  multiline
+                />
+              </>
+            ) : null}
+
             {loanEditError ? (
               <Text style={styles.errorText}>{loanEditError}</Text>
             ) : null}
@@ -167,7 +201,9 @@ export default function SuaVayNo({
                 style={styles.modalSaveBtn}
                 onPress={handleSaveLoanEdit}
               >
-                <Text style={styles.addBtnText}>Lưu khoản vay nợ</Text>
+                <Text style={styles.addBtnText}>
+                  {isPaymentMode ? 'Lưu đợt thu/trả nợ' : 'Lưu khoản vay nợ'}
+                </Text>
               </Pressable>
             </View>
           </ScrollView>
