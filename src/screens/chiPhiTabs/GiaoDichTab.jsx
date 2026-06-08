@@ -253,9 +253,19 @@ export default function GiaoDichTab({
             Chưa có giao dịch phù hợp trong tháng này.
           </Text>
         ) : (
-          groupedTransactions.map(([dateKey, items]) => (
+          groupedTransactions.map(([dateKey, items, dayTotal]) => (
             <View key={dateKey} style={styles.dayGroup}>
-              <Text style={styles.dayTitle}>{getDayLabel(dateKey)}</Text>
+              <View style={styles.dayHeaderRow}>
+                <Text style={styles.dayTitle}>{getDayLabel(dateKey)}</Text>
+                <Text
+                  style={[
+                    styles.dayTotalText,
+                    dayTotal >= 0 ? styles.incomeText : styles.expenseText,
+                  ]}
+                >
+                  Tổng {formatSignedAmount(dayTotal)}
+                </Text>
+              </View>
               {items.map((tx) => {
                 const cat = categoryById(tx.category, allCategories);
                 const amount = Number(tx.amount) || 0;

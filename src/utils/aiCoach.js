@@ -364,11 +364,69 @@ function pickExpenseCandidateCategoryIds(rawIds, type, categories, selectedId) {
   return result;
 }
 
+function normalizeCategoryMatchText(...parts) {
+  return parts
+    .map((part) => String(part ?? ''))
+    .join(' ')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function firstAllowedExpenseCategory(ids, categories) {
+  const allowed = new Set(
+    (Array.isArray(categories) ? categories : [])
+      .filter((cat) => cat?.type === 'expense' || cat?.type === 'both')
+      .map((cat) => String(cat.id))
+  );
+  return ids.find((id) => allowed.has(id)) || '';
+}
+
+function inferContextExpenseCategory(row, categories) {
+  const text = normalizeCategoryMatchText(
+    row?.description,
+    row?.note,
+    row?.sourceText
+  );
+  if (!text) return '';
+
+  const mentionsPartner =
+    /\b(nguoi yeu|ban gai|ban trai|vo|chong|crush|date)\b/.test(text);
+  if (mentionsPartner) {
+    const isActivity =
+      /\b(cung|di choi|hen ho|date|an|bua|com|cafe|ca phe|tra sua|xem phim|di an)\b/.test(
+        text
+      );
+    const isGiftOrBuyingFor =
+      /\b(tang|qua|mua cho|cho nguoi yeu|cho ban gai|cho ban trai|cho vo|cho chong)\b/.test(
+        text
+      );
+    if (isActivity && !isGiftOrBuyingFor) {
+      return firstAllowedExpenseCategory(['dating', 'partner_spouse'], categories);
+    }
+    return firstAllowedExpenseCategory(['partner_spouse', 'dating'], categories);
+  }
+
+  const mentionsCoworkers =
+    /\b(ae|anh em|dong nghiep|team|cong ty|co quan|van phong)\b/.test(text);
+  const socialPay =
+    /\b(bao|khao|dai|moi|tra tien|chi cho|mua cho|gop vui)\b/.test(text);
+  if (mentionsCoworkers && socialPay) {
+    return firstAllowedExpenseCategory(['friends', 'coworking'], categories);
+  }
+
+  return '';
+}
+
 function normalizeAiExpenseTransactionsPayload(parsed, params) {
   const rows = Array.isArray(parsed?.transactions) ? parsed.transactions : [];
   const categories = Array.isArray(params?.categories) ? params.categories : [];
   const fallbackDate = params?.dateKey ?? getTodayKey();
   const fallbackTime = params?.timeKey ?? '12:00';
+  const sourceText = rows.length === 1 ? params?.sourceText ?? '' : '';
 
   return rows
     .map((row) => {
@@ -382,11 +440,23 @@ function normalizeAiExpenseTransactionsPayload(parsed, params) {
         .slice(0, 80);
       if (!description) return null;
 
-      const category = pickExpenseCategoryId(row.categoryId, type, categories);
+      const note = String(row.note ?? '').trim().slice(0, 160);
+      const selectedCategory = pickExpenseCategoryId(row.categoryId, type, categories);
+      const contextCategory =
+        type === 'expense'
+          ? inferContextExpenseCategory(
+              { description, note, sourceText },
+              categories
+            )
+          : '';
+      const category = contextCategory || selectedCategory;
       const confidenceRaw = Number(row.confidence);
-      const confidence = Number.isFinite(confidenceRaw)
+      const normalizedConfidence = Number.isFinite(confidenceRaw)
         ? Math.max(0, Math.min(1, confidenceRaw))
         : 0.5;
+      const confidence = contextCategory
+        ? Math.max(normalizedConfidence, 0.9)
+        : normalizedConfidence;
 
       return {
         description,
@@ -401,7 +471,7 @@ function normalizeAiExpenseTransactionsPayload(parsed, params) {
         ),
         date: normalizeDateKey(row.date, fallbackDate),
         time: normalizeTimeKey(row.time, fallbackTime),
-        note: String(row.note ?? '').trim().slice(0, 160),
+        note,
       };
     })
     .filter(Boolean)
@@ -560,6 +630,7 @@ export async function fetchExpenseTransactionsFromAI(params) {
     categories,
     dateKey,
     timeKey,
+    sourceText: userText,
   });
   if (transactions.length === 0) {
     throw new Error('AI chưa tìm thấy khoản thu/chi hợp lệ trong nội dung này.');

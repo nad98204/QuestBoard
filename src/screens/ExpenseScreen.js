@@ -1278,10 +1278,16 @@ export default function ExpenseScreen({
     for (const tx of visibleTransactions) {
       const date = getTransactionDate(tx);
       const key = dateKeyFromDate(date);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(tx);
+      if (!groups.has(key)) groups.set(key, { items: [], total: 0 });
+      const group = groups.get(key);
+      group.items.push(tx);
+      group.total += Number(tx.amount) || 0;
     }
-    return Array.from(groups.entries());
+    return Array.from(groups.entries()).map(([dateKey, group]) => [
+      dateKey,
+      group.items,
+      group.total,
+    ]);
   }, [visibleTransactions]);
 
   const sortedLoanRecords = useMemo(
@@ -4891,11 +4897,26 @@ const styles = StyleSheet.create({
   dayGroup: {
     marginBottom: 14,
   },
+  dayHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 8,
+  },
   dayTitle: {
+    flex: 1,
+    minWidth: 0,
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '900',
-    marginBottom: 8,
+  },
+  dayTotalText: {
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
   },
   txRow: {
     flexDirection: 'row',
