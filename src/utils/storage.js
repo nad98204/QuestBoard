@@ -300,6 +300,8 @@ const MAX_LOAN_RECORDS = 1000;
 const MAX_BUDGET_RECORDS = 500;
 const MAX_MONEY_JARS = 100;
 const MAX_ASSET_GOALS = 100;
+const MAX_RECURRING_TRANSACTIONS = 200;
+const MAX_ASSET_HISTORY = 36; // 3 năm
 const BAD_HABIT_KEYS = ['no_social', 'no_junk', 'no_delay'];
 
 function defaultBossState() {
@@ -934,6 +936,85 @@ function normalizeAssetGoals(raw) {
     .slice(0, MAX_ASSET_GOALS);
 }
 
+function normalizeRecurringTransactions(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  const VALID_FREQS = ['daily', 'weekly', 'monthly', 'yearly'];
+  return raw
+    .map((item, index) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+      const amount = Number(item.amount);
+      if (!Number.isFinite(amount) || amount === 0) return null;
+      const description = String(item.description ?? item.name ?? '').trim();
+      if (!description) return null;
+      const createdAt = Number.isFinite(Number(item.createdAt))
+        ? Number(item.createdAt)
+        : Date.now() - index;
+      return {
+        id: String(item.id ?? `${createdAt}-recurring-${index}`).trim(),
+        description,
+        amount: Math.round(amount),
+        category: String(item.category ?? 'other').trim() || 'other',
+        frequency: VALID_FREQS.includes(item.frequency) ? item.frequency : 'monthly',
+        startDate: /^\d{4}-\d{2}-\d{2}$/.test(String(item.startDate ?? '').trim())
+          ? String(item.startDate).trim()
+          : getTodayKey(),
+        nextDate: /^\d{4}-\d{2}-\d{2}$/.test(String(item.nextDate ?? '').trim())
+          ? String(item.nextDate).trim()
+          : (item.startDate ?? getTodayKey()),
+        note: String(item.note ?? '').trim().slice(0, 240),
+        status: item.status === 'paused' ? 'paused' : 'active',
+        autoCreate: Boolean(item.autoCreate),
+        lastCreatedDate: /^\d{4}-\d{2}-\d{2}$/.test(String(item.lastCreatedDate ?? '').trim())
+          ? String(item.lastCreatedDate).trim()
+          : '',
+        createdAt,
+        updatedAt: Number.isFinite(Number(item.updatedAt)) ? Number(item.updatedAt) : createdAt,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .slice(0, MAX_RECURRING_TRANSACTIONS);
+}
+
+function normalizeAssetHistory(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const total = Math.abs(Number(entry.total) || 0);
+      if (!Number.isFinite(total)) return null;
+      const monthKey = /^\d{4}-\d{2}$/.test(String(entry.monthKey ?? '').trim())
+        ? String(entry.monthKey).trim()
+        : '';
+      if (!monthKey) return null;
+      const recordedAt = Number.isFinite(Number(entry.recordedAt))
+        ? Number(entry.recordedAt)
+        : Date.now() - index;
+      return {
+        monthKey,
+        total: Math.round(total),
+        externalTotal: Math.round(Math.abs(Number(entry.externalTotal) || 0)),
+        appTotal: Math.round(Number(entry.appTotal) || 0),
+        recordedAt,
+      };
+    })
+    .filter(Boolean)
+    // unique theo monthKey — giữ entry mới nhất
+    .reduce((acc, entry) => {
+      const exists = acc.find((e) => e.monthKey === entry.monthKey);
+      if (!exists) acc.push(entry);
+      else if (entry.recordedAt > exists.recordedAt) {
+        const idx = acc.indexOf(exists);
+        acc[idx] = entry;
+      }
+      return acc;
+    }, [])
+    .sort((a, b) => a.monthKey.localeCompare(b.monthKey))
+    .slice(-MAX_ASSET_HISTORY);
+}
+
 function applyDeathToProfile(profile) {
   const xpInLevel = Math.max(
     0,
@@ -1206,6 +1287,8 @@ export function createInitialState() {
     moneyJars: [],
     assetSnapshot: normalizeAssetSnapshot(null),
     assetGoals: [],
+    recurringTransactions: [],
+    assetHistory: [],
     updatedAt: Date.now(),
   };
 }
@@ -1318,6 +1401,8 @@ function migrateParsed(data) {
     moneyJars: normalizeMoneyJars(data.moneyJars),
     assetSnapshot: normalizeAssetSnapshot(data.assetSnapshot),
     assetGoals: normalizeAssetGoals(data.assetGoals),
+    recurringTransactions: normalizeRecurringTransactions(data.recurringTransactions),
+    assetHistory: normalizeAssetHistory(data.assetHistory),
   };
 }
 
@@ -1337,6 +1422,8 @@ function toPersistedPayload(state) {
     moneyJars: normalizeMoneyJars(state.moneyJars),
     assetSnapshot: normalizeAssetSnapshot(state.assetSnapshot),
     assetGoals: normalizeAssetGoals(state.assetGoals),
+    recurringTransactions: normalizeRecurringTransactions(state.recurringTransactions),
+    assetHistory: normalizeAssetHistory(state.assetHistory),
     fitnessConfig:
       state.fitnessConfig != null
         ? normalizeFitnessConfig(state.fitnessConfig)

@@ -14,6 +14,7 @@ export default function HuTienTab({
   handleEditJar,
   handleJarAiNote,
   handleOpenJarContribution,
+  handleViewJarHistory,
   jarAiBusy,
   jarAiError,
   jarAiStatus,
@@ -160,6 +161,16 @@ export default function HuTienTab({
                           - {formatCurrency(entry.amount)} · {entry.note}
                         </Text>
                       ))}
+                      {jar.contributionRows.length > 3 ? (
+                        <Pressable
+                          onPress={() => handleViewJarHistory(jar)}
+                          hitSlop={6}
+                        >
+                          <Text style={styles.jarViewAllText}>
+                            Xem tất cả {jar.contributionRows.length} lần →
+                          </Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   ) : null}
                   {jar.note ? (

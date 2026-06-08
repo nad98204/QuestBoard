@@ -1262,6 +1262,8 @@ export default function QuestBoardScreen() {
               moneyJars={state.moneyJars}
               assetSnapshot={state.assetSnapshot}
               assetGoals={state.assetGoals}
+              recurringTransactions={state.recurringTransactions}
+              assetHistory={state.assetHistory}
               onTransactionsChange={(expenses) => {
                 commit((s) => ({ ...s, expenses }));
               }}
@@ -1282,6 +1284,12 @@ export default function QuestBoardScreen() {
               }}
               onAssetGoalsChange={(assetGoals) => {
                 commit((s) => ({ ...s, assetGoals }));
+              }}
+              onRecurringTransactionsChange={(recurringTransactions) => {
+                commit((s) => ({ ...s, recurringTransactions }));
+              }}
+              onAssetHistoryChange={(assetHistory) => {
+                commit((s) => ({ ...s, assetHistory }));
               }}
           />
         </AppShell>

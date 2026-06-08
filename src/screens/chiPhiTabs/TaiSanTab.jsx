@@ -16,6 +16,7 @@ export default function TaiSanTab({
   assetGoalAiStatus,
   assetGoalAiText,
   assetGoalRows,
+  assetHistory,
   currentAssetSnapshot,
   EXPENSE_IMAGES,
   formatCurrency,
@@ -305,6 +306,65 @@ export default function TaiSanTab({
           </View>
         </View>
       </View>
+
+      {/* Lịch sử tài sản theo tháng */}
+      {Array.isArray(assetHistory) && assetHistory.length > 0 ? (
+        <View style={styles.assetCard}>
+          <Text style={styles.cardTitle}>📈 Tăng trưởng tài sản</Text>
+          <Text style={styles.txMeta}>
+            Lịch sử tài sản được tự động lưu mỗi tháng.
+          </Text>
+          <View style={{ marginTop: 10 }}>
+            {[...assetHistory]
+              .sort((a, b) => b.monthKey.localeCompare(a.monthKey))
+              .map((entry, index, arr) => {
+                const prev = arr[index + 1];
+                const delta = prev ? entry.total - prev.total : null;
+                const deltaPositive = delta != null && delta > 0;
+                const deltaNegative = delta != null && delta < 0;
+                const [year, month] = String(entry.monthKey).split('-').map(Number);
+                const label = `Tháng ${month}/${year}`;
+
+                // Tính thanh progress (so với max)
+                const maxTotal = Math.max(...assetHistory.map((e) => e.total), 1);
+                const barWidth = maxTotal > 0 ? Math.max(4, (entry.total / maxTotal) * 100) : 4;
+
+                return (
+                  <View key={entry.monthKey} style={styles.assetHistoryRow}>
+                    <View style={styles.assetHistoryLeft}>
+                      <Text style={styles.txMeta}>{label}</Text>
+                      <View style={styles.assetHistoryBarTrack}>
+                        <View
+                          style={[
+                            styles.assetHistoryBarFill,
+                            { width: `${Math.min(100, barWidth)}%` },
+                          ]}
+                        />
+                      </View>
+                    </View>
+                    <View style={styles.assetHistoryRight}>
+                      <Text style={[styles.txAmount, styles.incomeText]}>
+                        {formatCurrency(entry.total)}
+                      </Text>
+                      {delta != null ? (
+                        <Text
+                          style={[
+                            styles.txMeta,
+                            deltaPositive && styles.incomeText,
+                            deltaNegative && styles.expenseText,
+                          ]}
+                        >
+                          {deltaPositive ? '+' : ''}
+                          {formatCurrency(delta)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+          </View>
+        </View>
+      ) : null}
     </>
   );
 }

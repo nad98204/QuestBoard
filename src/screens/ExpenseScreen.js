@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -34,6 +34,9 @@ import XacNhanDanhMucAi from './hopThoaiChiPhi/XacNhanDanhMucAi';
 import SuaVayNo from './hopThoaiChiPhi/SuaVayNo';
 import SuaNganSach from './hopThoaiChiPhi/SuaNganSach';
 import SuaGiaoDich from './hopThoaiChiPhi/SuaGiaoDich';
+import GiaoDichDinhKyTab from './chiPhiTabs/GiaoDichDinhKyTab';
+import SuaGiaoDichDinhKy from './hopThoaiChiPhi/SuaGiaoDichDinhKy';
+import LichSuHuTien from './hopThoaiChiPhi/LichSuHuTien';
 
 const EXPENSE_IMAGES = {
   header: require('../../assets/images/expenses/expense_header_bg.png'),
@@ -298,6 +301,15 @@ function addMonthsToKey(monthKey, delta) {
   const [year, month] = String(monthKey).split('-').map(Number);
   const d = new Date(year, month - 1 + delta, 1);
   return getMonthKey(d);
+}
+
+function addMonthsToDateKey(dateKey, delta) {
+  const d = parseDateKey(dateKey) ?? new Date();
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + Math.max(0, Math.round(Number(delta) || 0)));
+  d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return dateKeyFromDate(d);
 }
 
 function parseDateKey(dateKey) {
@@ -763,6 +775,66 @@ function formatSnapshotTime(value) {
   });
 }
 
+function calcNextDate(startDate, frequency, lastCreatedDate) {
+  const base = lastCreatedDate || startDate;
+  const d = parseDateKey(base);
+  if (!d) return startDate;
+  if (frequency === 'daily') d.setDate(d.getDate() + 1);
+  else if (frequency === 'weekly') d.setDate(d.getDate() + 7);
+  else if (frequency === 'monthly') {
+    const day = d.getDate();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + 1);
+    d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  } else if (frequency === 'yearly') {
+    const day = d.getDate();
+    d.setDate(1);
+    d.setFullYear(d.getFullYear() + 1);
+    d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  }
+  return dateKeyFromDate(d);
+}
+
+function advanceRecurringDate(baseDate, frequency, minAfterDate) {
+  let nextDate = baseDate;
+  let guard = 0;
+  while (nextDate <= minAfterDate && guard < 400) {
+    const advanced = calcNextDate(baseDate, frequency, nextDate);
+    if (!advanced || advanced === nextDate) break;
+    nextDate = advanced;
+    guard += 1;
+  }
+  return nextDate;
+}
+
+function normalizeRecurringDueDate(startDate, frequency, minDate = getTodayKey()) {
+  if (startDate >= minDate) return startDate;
+  let nextDate = startDate;
+  let guard = 0;
+  while (nextDate < minDate && guard < 400) {
+    const advanced = calcNextDate(startDate, frequency, nextDate);
+    if (!advanced || advanced === nextDate) break;
+    nextDate = advanced;
+    guard += 1;
+  }
+  return nextDate;
+}
+
+function buildRecurringDraft(item) {
+  return {
+    description: normalizeText(item?.description),
+    amount: String(item?.amount ?? ''),
+    category: normalizeText(item?.category, 'food'),
+    frequency: ['daily', 'weekly', 'monthly', 'yearly'].includes(item?.frequency)
+      ? item.frequency
+      : 'monthly',
+    startDate: normalizeText(item?.startDate, getTodayKey()),
+    monthsFromNow: '',
+    autoCreate: Boolean(item?.autoCreate),
+    note: normalizeText(item?.note),
+  };
+}
+
 export default function ExpenseScreen({
   transactions,
   customCategories,
@@ -771,6 +843,8 @@ export default function ExpenseScreen({
   moneyJars,
   assetSnapshot,
   assetGoals,
+  recurringTransactions,
+  assetHistory,
   onTransactionsChange,
   onCategoriesChange,
   onLoanRecordsChange,
@@ -778,6 +852,8 @@ export default function ExpenseScreen({
   onMoneyJarsChange,
   onAssetSnapshotChange,
   onAssetGoalsChange,
+  onRecurringTransactionsChange,
+  onAssetHistoryChange,
 }) {
   const [draft, setDraft] = useState(buildInitialDraft);
   const [categoryDraft, setCategoryDraft] = useState('');
@@ -840,6 +916,15 @@ export default function ExpenseScreen({
   const [assetGoalAiError, setAssetGoalAiError] = useState('');
   const [reportMode, setReportMode] = useState('month');
   const [activeLedgerTab, setActiveLedgerTab] = useState('transactions');
+
+  // --- Giao dịch định kỳ ---
+  const [recurringModalOpen, setRecurringModalOpen] = useState(false);
+  const [editingRecurringId, setEditingRecurringId] = useState(null);
+  const [recurringDraft, setRecurringDraft] = useState(() => buildRecurringDraft(null));
+  const [recurringError, setRecurringError] = useState('');
+
+  // --- Lịch sử hũ tiền ---
+  const [jarHistoryJar, setJarHistoryJar] = useState(null);
   const canAdd = filter === 'expense' || filter === 'income';
   const isEditing = editingId != null;
   const normalizedCustomCategories = useMemo(
@@ -1085,6 +1170,30 @@ export default function ExpenseScreen({
     [currentAssetSnapshot.items, selectedAssetDetailId]
   );
 
+  const displayAssetHistory = useMemo(() => {
+    const rows = Array.isArray(assetHistory) ? assetHistory : [];
+    if (currentAssetSnapshot.total <= 0) return rows;
+
+    const currentMonth = getMonthKey();
+    return [
+      ...rows.filter((entry) => entry?.monthKey !== currentMonth),
+      {
+        monthKey: currentMonth,
+        total: currentAssetSnapshot.total,
+        externalTotal: currentAssetSnapshot.externalTotal,
+        appTotal: appTransactionAssetTotal,
+        recordedAt: currentAssetSnapshot.updatedAt || Date.now(),
+        preview: true,
+      },
+    ];
+  }, [
+    appTransactionAssetTotal,
+    assetHistory,
+    currentAssetSnapshot.externalTotal,
+    currentAssetSnapshot.total,
+    currentAssetSnapshot.updatedAt,
+  ]);
+
   const assetGoalRows = useMemo(() => {
     const currentTotal = currentAssetSnapshot.total;
     return allAssetGoals
@@ -1297,6 +1406,64 @@ export default function ExpenseScreen({
       ),
     [activeJarRows]
   );
+
+  // --- Giao dịch định kỳ ---
+  const allRecurringTransactions = useMemo(
+    () => (Array.isArray(recurringTransactions) ? recurringTransactions : []),
+    [recurringTransactions]
+  );
+
+  const activeRecurringRows = useMemo(
+    () => allRecurringTransactions.filter((item) => item.status !== 'disabled'),
+    [allRecurringTransactions]
+  );
+
+  // Tự động tạo giao dịch định kỳ đến hạn khi mở app
+  useEffect(() => {
+    const today = getTodayKey();
+    const dueItems = activeRecurringRows.filter(
+      (item) =>
+        item.status === 'active' &&
+        item.autoCreate &&
+        item.nextDate <= today &&
+        item.lastCreatedDate !== today
+    );
+    if (dueItems.length === 0) return;
+
+    const createdAt = Date.now();
+    const newTransactions = [];
+    const updatedRecurring = allRecurringTransactions.map((item) => {
+      const isDue = dueItems.find((d) => d.id === item.id);
+      if (!isDue) return item;
+      const tx = {
+        id: `${createdAt}-auto-${item.id}-${Math.random().toString(36).slice(2, 8)}`,
+        description: item.description,
+        amount: Math.round(Number(item.amount) || 0),
+        category: item.category,
+        dateTime: new Date().toISOString(),
+        note: normalizeText(item.note, `Tự động từ định kỳ ${item.description}`),
+        createdAt,
+        generatedBy: 'recurring_auto_v1',
+      };
+      newTransactions.push(tx);
+      return {
+        ...item,
+        lastCreatedDate: today,
+        nextDate: advanceRecurringDate(
+          item.nextDate || item.startDate,
+          item.frequency,
+          today
+        ),
+        updatedAt: createdAt,
+      };
+    });
+
+    if (newTransactions.length > 0) {
+      onTransactionsChange([...newTransactions, ...allTransactions]);
+      onRecurringTransactionsChange?.(updatedRecurring);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // chỉ chạy 1 lần khi mount
 
   const reportData = useMemo(() => {
     const [yearRaw] = String(visibleMonth).split('-').map(Number);
@@ -2054,6 +2221,204 @@ export default function ExpenseScreen({
     closeJarContributionModal();
   };
 
+  // --- Handlers: Giao dịch định kỳ ---
+  const updateRecurringDraft = (key, value) => {
+    setRecurringError('');
+    setRecurringDraft((prev) => {
+      if (key === 'monthsFromNow') {
+        const raw = normalizeText(value).replace(/[^\d]/g, '');
+        if (!raw) return { ...prev, monthsFromNow: '' };
+        const months = Math.min(240, Math.max(0, Number(raw) || 0));
+        return {
+          ...prev,
+          monthsFromNow: String(months),
+          startDate: addMonthsToDateKey(getTodayKey(), months),
+        };
+      }
+      if (key === 'startDate') {
+        return { ...prev, startDate: value, monthsFromNow: '' };
+      }
+      return { ...prev, [key]: value };
+    });
+  };
+
+  const handleAddRecurring = () => {
+    setEditingRecurringId(null);
+    setRecurringDraft(buildRecurringDraft(null));
+    setRecurringError('');
+    setRecurringModalOpen(true);
+  };
+
+  const handleEditRecurring = (item) => {
+    setEditingRecurringId(item.id);
+    setRecurringDraft(buildRecurringDraft(item));
+    setRecurringError('');
+    setRecurringModalOpen(true);
+  };
+
+  const closeRecurringModal = () => {
+    setRecurringModalOpen(false);
+    setEditingRecurringId(null);
+    setRecurringError('');
+  };
+
+  const handleSaveRecurring = () => {
+    const description = normalizeText(recurringDraft.description);
+    if (!description) {
+      setRecurringError('Nhập mô tả giao dịch.');
+      return;
+    }
+    const amount = parseAmount(recurringDraft.amount);
+    if (amount == null || amount === 0) {
+      setRecurringError('Nhập số tiền hợp lệ (âm là chi tiêu, dương là thu nhập).');
+      return;
+    }
+    const monthOffsetText = normalizeText(recurringDraft.monthsFromNow);
+    const monthOffset =
+      monthOffsetText === '' ? null : Number.parseInt(monthOffsetText, 10);
+    if (
+      monthOffsetText !== '' &&
+      (!Number.isFinite(monthOffset) || monthOffset < 0 || monthOffset > 240)
+    ) {
+      setRecurringError('Số tháng phải từ 0 đến 240.');
+      return;
+    }
+    const startDate =
+      monthOffset == null
+        ? normalizeText(recurringDraft.startDate, getTodayKey())
+        : addMonthsToDateKey(getTodayKey(), monthOffset);
+    if (!parseDateKey(startDate)) {
+      setRecurringError('Ngày bắt đầu không hợp lệ (YYYY-MM-DD).');
+      return;
+    }
+    const frequency = ['daily', 'weekly', 'monthly', 'yearly'].includes(recurringDraft.frequency)
+      ? recurringDraft.frequency
+      : 'monthly';
+    const category = normalizeText(recurringDraft.category, 'other');
+    const roundedAmount = Math.round(amount);
+    const now = Date.now();
+    if (editingRecurringId) {
+      onRecurringTransactionsChange?.(
+        allRecurringTransactions.map((item) =>
+          item.id === editingRecurringId
+            ? (() => {
+                const scheduleChanged =
+                  item.startDate !== startDate || item.frequency !== frequency;
+                return {
+                  ...item,
+                  description,
+                  amount: roundedAmount,
+                  category,
+                  frequency,
+                  startDate,
+                  nextDate: scheduleChanged
+                    ? normalizeRecurringDueDate(startDate, frequency)
+                    : item.nextDate || normalizeRecurringDueDate(startDate, frequency),
+                  autoCreate: recurringDraft.autoCreate,
+                  note: normalizeText(recurringDraft.note),
+                  updatedAt: now,
+                };
+              })()
+            : item
+        )
+      );
+    } else {
+      const newItem = {
+        id: `${now}-recurring-${Math.random().toString(36).slice(2, 8)}`,
+        description,
+        amount: roundedAmount,
+        category,
+        frequency,
+        startDate,
+        nextDate: normalizeRecurringDueDate(startDate, frequency),
+        autoCreate: recurringDraft.autoCreate,
+        note: normalizeText(recurringDraft.note),
+        status: 'active',
+        lastCreatedDate: '',
+        createdAt: now,
+        updatedAt: now,
+      };
+      onRecurringTransactionsChange?.([newItem, ...allRecurringTransactions]);
+    }
+    closeRecurringModal();
+  };
+
+  const handlePauseRecurring = (id) => {
+    onRecurringTransactionsChange?.(
+      allRecurringTransactions.map((item) =>
+        item.id === id ? { ...item, status: 'paused', updatedAt: Date.now() } : item
+      )
+    );
+  };
+
+  const handleResumeRecurring = (id) => {
+    onRecurringTransactionsChange?.(
+      allRecurringTransactions.map((item) =>
+        item.id === id ? { ...item, status: 'active', updatedAt: Date.now() } : item
+      )
+    );
+  };
+
+  const handleDeleteRecurring = (id) => {
+    Alert.alert(
+      'Xóa giao dịch định kỳ?',
+      'Khoản định kỳ này sẽ bị xóa vĩnh viễn.',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Xóa',
+          style: 'destructive',
+          onPress: () => {
+            onRecurringTransactionsChange?.(
+              allRecurringTransactions.filter((item) => item.id !== id)
+            );
+          },
+        },
+      ]
+    );
+  };
+
+  const handleApplyRecurring = (item) => {
+    const today = getTodayKey();
+    const now = Date.now();
+    const tx = {
+      id: `${now}-manual-recurring-${Math.random().toString(36).slice(2, 8)}`,
+      description: item.description,
+      amount: Math.round(Number(item.amount) || 0),
+      category: item.category,
+      dateTime: new Date().toISOString(),
+      note: normalizeText(item.note, `Ghi tay từ định kỳ`),
+      createdAt: now,
+      generatedBy: 'recurring_manual_v1',
+    };
+    onTransactionsChange([tx, ...allTransactions]);
+    onRecurringTransactionsChange?.(
+      allRecurringTransactions.map((r) =>
+        r.id === item.id
+          ? {
+              ...r,
+              lastCreatedDate: today,
+              nextDate:
+                (r.nextDate || r.startDate) <= today
+                  ? advanceRecurringDate(r.nextDate || r.startDate, r.frequency, today)
+                  : r.nextDate || normalizeRecurringDueDate(r.startDate, r.frequency),
+              updatedAt: now,
+            }
+          : r
+      )
+    );
+    setVisibleMonth(getMonthKey(new Date()));
+  };
+
+  // --- Handler: Lịch sử hũ tiền ---
+  const handleViewJarHistory = (jar) => {
+    setJarHistoryJar(jar);
+  };
+
+  const closeJarHistory = () => {
+    setJarHistoryJar(null);
+  };
+
   const handleAssetAiNote = async () => {
     const text = normalizeText(assetAiText);
     if (!text) {
@@ -2077,6 +2442,27 @@ export default function ExpenseScreen({
       };
 
       onAssetSnapshotChange?.(nextSnapshot);
+
+      // Lưu vào lịch sử tháng này
+      const currentMonth = getMonthKey();
+      const nextAssetTotal = Math.max(
+        0,
+        recordedAssetTotal + Math.max(0, Number(result.snapshot.total) || 0)
+      );
+      const newHistoryEntry = {
+        monthKey: currentMonth,
+        total: nextAssetTotal,
+        externalTotal: result.snapshot.total,
+        appTotal: appTransactionAssetTotal,
+        recordedAt: now,
+      };
+      const currentHistory = Array.isArray(assetHistory) ? assetHistory : [];
+      const updatedHistory = [
+        ...currentHistory.filter((e) => e.monthKey !== currentMonth),
+        newHistoryEntry,
+      ];
+      onAssetHistoryChange?.(updatedHistory);
+
       setAssetAiText('');
       setAssetAiStatus(
         result.message || 'Đã cập nhật tài sản ngoài app.'
@@ -2740,6 +3126,22 @@ export default function ExpenseScreen({
                   Tài sản
                 </Text>
               </Pressable>
+              <Pressable
+                style={[
+                  styles.ledgerTabBtn,
+                  activeLedgerTab === 'recurring' && styles.ledgerTabActive,
+                ]}
+                onPress={() => setActiveLedgerTab('recurring')}
+              >
+                <Text
+                  style={[
+                    styles.ledgerTabText,
+                    activeLedgerTab === 'recurring' && styles.ledgerTabTextActive,
+                  ]}
+                >
+                  Định kỳ
+                </Text>
+              </Pressable>
             </View>
 
             {activeLedgerTab === 'transactions' ? (
@@ -2866,6 +3268,25 @@ export default function ExpenseScreen({
                   <Text style={styles.totalLabel}>Ngoài app</Text>
                   <Text style={[styles.totalValue, styles.incomeText]}>
                     {formatCurrency(currentAssetSnapshot.externalTotal)}
+                  </Text>
+                </View>
+              </View>
+            ) : activeLedgerTab === 'recurring' ? (
+              <View style={styles.loanTotalRow}>
+                <View style={styles.loanTotalTile}>
+                  <Text style={styles.totalLabel}>Đang theo dõi</Text>
+                  <Text style={[styles.totalValue, styles.incomeText]}>
+                    {activeRecurringRows.length} khoản
+                  </Text>
+                </View>
+                <View style={styles.loanTotalTile}>
+                  <Text style={styles.totalLabel}>Đến hạn</Text>
+                  <Text style={[styles.totalValue, styles.expenseText]}>
+                    {
+                      activeRecurringRows.filter(
+                        (r) => r.status === 'active' && r.nextDate <= getTodayKey()
+                      ).length
+                    } khoản
                   </Text>
                 </View>
               </View>
@@ -3010,6 +3431,7 @@ export default function ExpenseScreen({
           assetGoalAiStatus={assetGoalAiStatus}
           assetGoalAiText={assetGoalAiText}
           assetGoalRows={assetGoalRows}
+          assetHistory={displayAssetHistory}
           currentAssetSnapshot={currentAssetSnapshot}
           EXPENSE_IMAGES={EXPENSE_IMAGES}
           formatCurrency={formatCurrency}
@@ -3039,6 +3461,7 @@ export default function ExpenseScreen({
           handleEditJar={handleEditJar}
           handleJarAiNote={handleJarAiNote}
           handleOpenJarContribution={handleOpenJarContribution}
+          handleViewJarHistory={handleViewJarHistory}
           jarAiBusy={jarAiBusy}
           jarAiError={jarAiError}
           jarAiStatus={jarAiStatus}
@@ -3049,6 +3472,24 @@ export default function ExpenseScreen({
           setJarAiText={setJarAiText}
           styles={styles}
           totals={totals}
+        />
+          ) : null}
+
+          {activeLedgerTab === 'recurring' ? (
+        <GiaoDichDinhKyTab
+          activeRecurringRows={activeRecurringRows}
+          allCategories={allCategories}
+          categoryById={categoryById}
+          EXPENSE_IMAGES={EXPENSE_IMAGES}
+          formatCurrency={formatCurrency}
+          formatDateKeyLabel={formatDateKeyLabel}
+          handleAddRecurring={handleAddRecurring}
+          handleEditRecurring={handleEditRecurring}
+          handlePauseRecurring={handlePauseRecurring}
+          handleResumeRecurring={handleResumeRecurring}
+          handleDeleteRecurring={handleDeleteRecurring}
+          handleApplyRecurring={handleApplyRecurring}
+          styles={styles}
         />
           ) : null}
 
@@ -3155,6 +3596,27 @@ export default function ExpenseScreen({
         setEditCategoryOpen={setEditCategoryOpen}
         styles={styles}
         updateEditDraft={updateEditDraft}
+      />
+      <SuaGiaoDichDinhKy
+        visible={recurringModalOpen}
+        draft={recurringDraft}
+        error={recurringError}
+        editingId={editingRecurringId}
+        allCategories={allCategories}
+        categoryById={categoryById}
+        categoriesForMode={categoriesForMode}
+        onClose={closeRecurringModal}
+        onSave={handleSaveRecurring}
+        onUpdateDraft={updateRecurringDraft}
+        styles={styles}
+      />
+      <LichSuHuTien
+        jar={jarHistoryJar}
+        formatCurrency={formatCurrency}
+        formatDateKeyLabel={formatDateKeyLabel}
+        styles={styles}
+        visible={jarHistoryJar != null}
+        onClose={closeJarHistory}
       />
     </SafeAreaView>
   );
@@ -4528,5 +4990,82 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     lineHeight: 24,
+  },
+
+  // --- Giao dịch định kỳ ---
+  recurringCard: {
+    backgroundColor: '#0b1020',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  recurringAvatar: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+    backgroundColor: 'rgba(59,130,246,0.12)',
+  },
+  recurringRow: {
+    backgroundColor: '#111827',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    padding: 12,
+    marginBottom: 10,
+  },
+  recurringRowPaused: {
+    opacity: 0.5,
+  },
+
+  // --- Lịch sử hũ tiền ---
+  jarViewAllText: {
+    color: '#34d399',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  jarHistoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a2a1a',
+  },
+  jarHistoryCopy: {
+    flex: 1,
+    marginRight: 8,
+  },
+
+  // --- Lịch sử tài sản ---
+  assetHistoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 10,
+  },
+  assetHistoryLeft: {
+    flex: 1,
+  },
+  assetHistoryRight: {
+    alignItems: 'flex-end',
+    minWidth: 110,
+  },
+  assetHistoryBarTrack: {
+    height: 6,
+    backgroundColor: '#1a2a1a',
+    borderRadius: 3,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  assetHistoryBarFill: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#34d399',
   },
 });
