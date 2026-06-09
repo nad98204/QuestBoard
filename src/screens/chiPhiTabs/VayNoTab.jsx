@@ -394,28 +394,30 @@ export default function VayNoTab({
                 <View style={localStyles.timelineContainer}>
                   <Text style={localStyles.timelineTitle}>Lịch sử thu/trả</Text>
                   {payments.map((p, idx) => (
-                    <View
-                      key={p.id ?? `${loan.id}-payment-${idx}`}
-                      style={localStyles.timelineRow}
-                    >
-                      <View style={localStyles.timelineIndicator}>
-                        <View style={localStyles.timelineDot} />
-                        {idx < payments.length - 1 && (
-                          <View style={localStyles.timelineLine} />
-                        )}
-                      </View>
-                      <Text style={localStyles.timelineText} numberOfLines={1}>
-                        Đợt {idx + 1}:{' '}
+                    <View key={p.id ?? `${loan.id}-payment-${idx}`} style={localStyles.paymentHistoryCard}>
+                      <View style={localStyles.paymentHistoryTop}>
+                        <View style={localStyles.paymentHistoryLabelWrap}>
+                          <Text style={localStyles.paymentHistoryTitle}>
+                            Đợt {idx + 1}
+                          </Text>
+                          <Text style={localStyles.paymentHistoryDate}>
+                            {formatDateKeyLabel(p.date)}
+                          </Text>
+                        </View>
                         <Text
-                          style={
-                            borrowed ? localStyles.expenseText : localStyles.incomeText
-                          }
+                          style={[
+                            localStyles.paymentHistoryAmount,
+                            borrowed ? localStyles.expenseText : localStyles.incomeText,
+                          ]}
                         >
                           {formatCurrency(p.amount)}
-                        </Text>{' '}
-                        · {formatDateKeyLabel(p.date)}
-                        {p.note ? ` · ${p.note}` : ''}
-                      </Text>
+                        </Text>
+                      </View>
+                      {p.note ? (
+                        <Text style={localStyles.paymentHistoryNote} numberOfLines={2}>
+                          {p.note}
+                        </Text>
+                      ) : null}
                     </View>
                   ))}
                 </View>
@@ -891,36 +893,49 @@ const localStyles = StyleSheet.create({
     marginBottom: 8,
     textTransform: 'uppercase',
   },
-  timelineRow: {
+  paymentHistoryCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.18)',
+    backgroundColor: '#17122E',
+    padding: 10,
+    marginBottom: 8,
+  },
+  paymentHistoryTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    justifyContent: 'space-between',
+    gap: 10,
   },
-  timelineIndicator: {
-    width: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-    height: 16,
-  },
-  timelineDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#F6C75A',
-    zIndex: 1,
-  },
-  timelineLine: {
-    position: 'absolute',
-    top: 8,
-    bottom: -12,
-    width: 1,
-    backgroundColor: 'rgba(246, 199, 90, 0.25)',
-  },
-  timelineText: {
-    color: '#F8F3E8',
-    fontSize: 11,
+  paymentHistoryLabelWrap: {
     flex: 1,
+    minWidth: 0,
+  },
+  paymentHistoryTitle: {
+    color: '#F8F3E8',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  paymentHistoryDate: {
+    color: '#A8A0C2',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  paymentHistoryAmount: {
+    fontSize: 12,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(14, 11, 31, 0.55)',
+    overflow: 'hidden',
+  },
+  paymentHistoryNote: {
+    color: '#A8A0C2',
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 8,
   },
   // Modal popover
   modalOverlay: {

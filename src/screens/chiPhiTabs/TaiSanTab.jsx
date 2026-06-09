@@ -49,7 +49,7 @@ export default function TaiSanTab({
           <View style={styles.aiHeaderCopy}>
             <Text style={styles.aiTitle}>Tổng tài sản cá nhân</Text>
             <Text style={styles.aiSubtitle}>
-              Tự tính từ thu chi trong app, không trừ vay nợ, cộng thêm tài sản
+              Tự tính từ thu chi trong app, khoản vay nợ có ngày cụ thể, và tài sản
               ngoài app.
             </Text>
           </View>
@@ -59,8 +59,8 @@ export default function TaiSanTab({
             <View style={styles.assetTitleWrap}>
               <Text style={styles.assetLabel}>Tổng tài sản cá nhân</Text>
               <Text style={styles.txMeta}>
-                Số dư app + tiền cho vay + tài sản ngoài app; tiền giữ hộ chỉ
-                theo dõi
+                Số dư app + tiền phải thu còn lại + tài sản ngoài app; tiền giữ hộ
+                chỉ theo dõi
               </Text>
             </View>
             <Text style={styles.assetValue}>

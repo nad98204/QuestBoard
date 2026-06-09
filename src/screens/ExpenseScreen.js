@@ -514,6 +514,30 @@ function isLoanSettled(loan) {
   return loan?.status === 'settled' || getLoanRemainingAmount(loan) <= 0;
 }
 
+function isLegacyLoanRecord(loan) {
+  if (loan?.dateUnknown) return true;
+  const note = normalizeComparableText(loan?.note);
+  return /\b(ngay xua|lau roi|truoc day|khong nho)\b/.test(note);
+}
+
+function getLoanAssetCashFlowAmount(loan) {
+  if (!loan || typeof loan !== 'object' || loan.type === 'held') return 0;
+  const principal = Math.abs(Number(loan.amount) || 0);
+  let total = isLegacyLoanRecord(loan)
+    ? 0
+    : loan.type === 'borrowed'
+      ? principal
+      : -principal;
+
+  for (const payment of Array.isArray(loan.payments) ? loan.payments : []) {
+    const amount = Math.abs(Number(payment.amount) || 0);
+    if (!amount) continue;
+    total += loan.type === 'borrowed' ? -amount : amount;
+  }
+
+  return total;
+}
+
 function loanDateTimeIso(dateKey, fallbackMs = Date.now()) {
   const date = parseDateKey(dateKey);
   if (!date) return new Date(fallbackMs).toISOString();
@@ -578,6 +602,19 @@ function buildLoanCashFlowTransactions(loans) {
 }
 
 function buildLoanEditDraft(loan) {
+  const paymentDrafts = (Array.isArray(loan?.payments) ? loan.payments : []).map(
+    (payment, index) => {
+      const createdAt = Number(payment?.createdAt) || Date.now() + index;
+      return {
+        id: String(payment?.id ?? `${createdAt}-payment-${index}`),
+        amount: String(Math.abs(Number(payment?.amount) || 0)),
+        date: normalizeText(payment?.date, getTodayKey()),
+        note: normalizeText(payment?.note),
+        createdAt,
+      };
+    }
+  );
+
   return {
     type:
       loan?.type === 'borrowed' ? 'borrowed' : loan?.type === 'held' ? 'held' : 'lent',
@@ -590,6 +627,7 @@ function buildLoanEditDraft(loan) {
     paymentAmount: '',
     paymentDate: getTodayKey(),
     paymentNote: '',
+    paymentDrafts,
   };
 }
 
@@ -1260,13 +1298,19 @@ export default function ExpenseScreen({
     [allLoanRecords]
   );
   const loanAssetReceivables = loanAssetBreakdown.lent;
-  const appTransactionAssetTotal = useMemo(
+  const loanAssetCashFlowTotal = useMemo(
     () =>
-      allTransactions.reduce(
-        (sum, tx) => sum + (Number(tx.amount) || 0),
+      allLoanRecords.reduce(
+        (sum, loan) => sum + getLoanAssetCashFlowAmount(loan),
         0
       ),
-    [allTransactions]
+    [allLoanRecords]
+  );
+  const appTransactionAssetTotal = useMemo(
+    () =>
+      allTransactions.reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0) +
+      loanAssetCashFlowTotal,
+    [allTransactions, loanAssetCashFlowTotal]
   );
   const recordedAssetTotal = useMemo(
     () => appTransactionAssetTotal + loanAssetReceivables,
@@ -1341,13 +1385,13 @@ export default function ExpenseScreen({
         id: 'app-balance',
         label: 'Số dư trong app',
         value: appTransactionAssetTotal,
-        note: 'Chỉ tính thu/chi thật trong app.',
+        note: 'Tính thu/chi thật và dòng tiền vay nợ có ngày cụ thể.',
       },
       {
         id: 'loan-lent',
         label: 'Tiền cho vay / chờ thu',
         value: loanAssetBreakdown.lent,
-        note: 'Cộng riêng các khoản người khác đang nợ mình.',
+        note: 'Phần phải thu còn lại; khoản có ngày cụ thể đã bù trừ với số dư app.',
       },
       {
         id: 'loan-held',
@@ -1368,7 +1412,7 @@ export default function ExpenseScreen({
         label: 'Số dư trong app',
         amount: appTransactionAssetTotal,
         detailType: 'app_balance',
-        sourceText: 'Tự tính từ thu chi, không gồm dòng vay nợ tự động.',
+        sourceText: 'Tự tính từ thu chi và dòng tiền vay nợ có ngày cụ thể.',
       },
       ...loanAssetItems,
       ...items.map((item, index) => ({
@@ -3011,6 +3055,29 @@ export default function ExpenseScreen({
     setLoanEditDraft((prev) => ({ ...prev, [key]: value }));
   };
 
+  const updateLoanPaymentDraft = (paymentId, key, value) => {
+    setLoanEditError('');
+    setLoanEditDraft((prev) => ({
+      ...prev,
+      paymentDrafts: (Array.isArray(prev.paymentDrafts) ? prev.paymentDrafts : []).map(
+        (payment) =>
+          String(payment.id) === String(paymentId)
+            ? { ...payment, [key]: value }
+            : payment
+      ),
+    }));
+  };
+
+  const removeLoanPaymentDraft = (paymentId) => {
+    setLoanEditError('');
+    setLoanEditDraft((prev) => ({
+      ...prev,
+      paymentDrafts: (Array.isArray(prev.paymentDrafts) ? prev.paymentDrafts : []).filter(
+        (payment) => String(payment.id) !== String(paymentId)
+      ),
+    }));
+  };
+
   const handleSaveLoanEdit = () => {
     if (!editingLoanId) return;
     const currentLoan = allLoanRecords.find((loan) => loan.id === editingLoanId);
@@ -3045,7 +3112,39 @@ export default function ExpenseScreen({
     }
 
     const roundedAmount = Math.round(Math.abs(amount));
-    const currentPaidAmount = getLoanPaidAmount(currentLoan);
+    const normalizedPayments = [];
+    const paymentDrafts = Array.isArray(loanEditDraft.paymentDrafts)
+      ? loanEditDraft.paymentDrafts
+      : [];
+    for (const [index, payment] of paymentDrafts.entries()) {
+      const draftAmount = parseAmount(payment.amount);
+      const draftDate = parseDateKey(payment.date);
+      if (draftAmount == null || Math.abs(draftAmount) <= 0) {
+        setLoanEditError(`Số tiền đợt thu/trả #${index + 1} phải lớn hơn 0.`);
+        return;
+      }
+      if (!draftDate) {
+        setLoanEditError(`Ngày đợt thu/trả #${index + 1} cần đúng dạng YYYY-MM-DD.`);
+        return;
+      }
+      normalizedPayments.push({
+        id: String(payment.id || `${Date.now()}-payment-${index}`),
+        amount: Math.round(Math.abs(draftAmount)),
+        date: normalizeText(payment.date),
+        note: normalizeText(payment.note),
+        createdAt: Number(payment.createdAt) || Date.now() + index,
+      });
+    }
+    const currentPaidAmount = normalizedPayments.reduce(
+      (sum, payment) => sum + Math.abs(Number(payment.amount) || 0),
+      0
+    );
+    if (currentPaidAmount > roundedAmount) {
+      setLoanEditError(
+        `Tổng các đợt thu/trả không được vượt quá ${formatCurrency(roundedAmount)}.`
+      );
+      return;
+    }
     const remainingAmount = Math.max(0, roundedAmount - currentPaidAmount);
     let nextPayment = null;
     if (wantsPayment) {
@@ -3079,10 +3178,8 @@ export default function ExpenseScreen({
     const next = allLoanRecords.map((loan) => {
       if (loan.id !== editingLoanId) return loan;
       const payments = nextPayment
-        ? [...(Array.isArray(loan.payments) ? loan.payments : []), nextPayment]
-        : Array.isArray(loan.payments)
-          ? loan.payments
-          : [];
+        ? [...normalizedPayments, nextPayment]
+        : normalizedPayments;
       const paidAmount = payments.reduce(
         (sum, payment) => sum + Math.abs(Number(payment.amount) || 0),
         0
@@ -3597,8 +3694,10 @@ export default function ExpenseScreen({
         loanEditDraft={loanEditDraft}
         loanEditError={loanEditError}
         loanEditMode={loanEditMode}
+        removeLoanPaymentDraft={removeLoanPaymentDraft}
         styles={styles}
         updateLoanEditDraft={updateLoanEditDraft}
+        updateLoanPaymentDraft={updateLoanPaymentDraft}
       />
       <SuaNganSach
         allCategories={allCategories}
@@ -4620,6 +4719,114 @@ const styles = StyleSheet.create({
     color: '#b9a8c5',
     fontSize: 10,
     lineHeight: 15,
+  },
+  loanPaymentSection: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2d2442',
+    backgroundColor: '#0c0c1a',
+    padding: 10,
+    marginBottom: 12,
+  },
+  loanPaymentSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  loanPaymentTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  loanPaymentHint: {
+    color: '#8f86a8',
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: -4,
+  },
+  loanPaymentCount: {
+    color: '#67e8f9',
+    fontSize: 11,
+    fontWeight: '900',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(103, 232, 249, 0.25)',
+    backgroundColor: 'rgba(8, 145, 178, 0.12)',
+    overflow: 'hidden',
+  },
+  loanPaymentCardList: {
+    gap: 10,
+  },
+  loanPaymentEditCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#3a2a50',
+    backgroundColor: '#111122',
+    padding: 10,
+  },
+  loanPaymentCardHeader: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 8,
+  },
+  loanPaymentCardTitle: {
+    color: '#f5c842',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  loanPaymentDeleteBtn: {
+    minHeight: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#7f1d1d',
+    backgroundColor: 'rgba(127, 29, 29, 0.18)',
+    paddingHorizontal: 10,
+  },
+  loanPaymentDeleteText: {
+    color: '#fb7185',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  loanPaymentNoteInput: {
+    minHeight: 62,
+    marginBottom: 0,
+    textAlignVertical: 'top',
+  },
+  loanPaymentEmptyCard: {
+    minHeight: 44,
+    justifyContent: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#252542',
+    backgroundColor: '#101018',
+    paddingHorizontal: 10,
+  },
+  loanPaymentEmptyText: {
+    color: '#8f86a8',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  loanNewPaymentBox: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.28)',
+    backgroundColor: 'rgba(6, 78, 59, 0.12)',
+    padding: 10,
+    marginBottom: 12,
+  },
+  loanNewPaymentTitle: {
+    color: '#34d399',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 8,
   },
   disabledBtn: {
     opacity: 0.72,

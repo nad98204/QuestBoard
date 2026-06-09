@@ -17,10 +17,21 @@ export default function SuaVayNo({
   loanEditDraft,
   loanEditError,
   loanEditMode,
+  removeLoanPaymentDraft,
   styles,
   updateLoanEditDraft,
+  updateLoanPaymentDraft,
 }) {
   const isPaymentMode = loanEditMode === 'payment';
+  const paymentDrafts = Array.isArray(loanEditDraft.paymentDrafts)
+    ? loanEditDraft.paymentDrafts
+    : [];
+  const paymentAction =
+    loanEditDraft.type === 'borrowed'
+      ? 'trả nợ'
+      : loanEditDraft.type === 'held'
+        ? 'lấy lại'
+        : 'thu nợ';
 
   return (
     <Modal
@@ -158,13 +169,81 @@ export default function SuaVayNo({
               multiline
             />
 
+            <View style={styles.loanPaymentSection}>
+              <View style={styles.loanPaymentSectionHeader}>
+                <View style={styles.loanPaymentTitleWrap}>
+                  <Text style={styles.fieldLabel}>Lịch sử {paymentAction}</Text>
+                  <Text style={styles.loanPaymentHint}>
+                    Mỗi đợt nằm riêng để dễ sửa tiền, ngày, ghi chú hoặc xóa trước khi lưu.
+                  </Text>
+                </View>
+                <Text style={styles.loanPaymentCount}>{paymentDrafts.length} đợt</Text>
+              </View>
+              {paymentDrafts.length > 0 ? (
+                <View style={styles.loanPaymentCardList}>
+                  {paymentDrafts.map((payment, index) => (
+                    <View key={payment.id} style={styles.loanPaymentEditCard}>
+                      <View style={styles.loanPaymentCardHeader}>
+                        <Text style={styles.loanPaymentCardTitle}>
+                          Đợt {index + 1}
+                        </Text>
+                        <Pressable
+                          onPress={() => removeLoanPaymentDraft(payment.id)}
+                          style={styles.loanPaymentDeleteBtn}
+                        >
+                          <Text style={styles.loanPaymentDeleteText}>Xóa</Text>
+                        </Pressable>
+                      </View>
+                      <TextInput
+                        value={payment.amount}
+                        onChangeText={(v) =>
+                          updateLoanPaymentDraft(payment.id, 'amount', v)
+                        }
+                        placeholder={`Số tiền ${paymentAction}`}
+                        placeholderTextColor="#6f6a7d"
+                        keyboardType="numeric"
+                        style={styles.input}
+                      />
+                      <TextInput
+                        value={payment.date}
+                        onChangeText={(v) =>
+                          updateLoanPaymentDraft(payment.id, 'date', v)
+                        }
+                        placeholder={`Ngày ${paymentAction}: YYYY-MM-DD`}
+                        placeholderTextColor="#6f6a7d"
+                        style={styles.input}
+                      />
+                      <TextInput
+                        value={payment.note}
+                        onChangeText={(v) =>
+                          updateLoanPaymentDraft(payment.id, 'note', v)
+                        }
+                        placeholder="Ghi chú đợt này"
+                        placeholderTextColor="#6f6a7d"
+                        style={[styles.input, styles.loanPaymentNoteInput]}
+                        multiline
+                      />
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.loanPaymentEmptyCard}>
+                  <Text style={styles.loanPaymentEmptyText}>
+                    Chưa có đợt {paymentAction} nào.
+                  </Text>
+                </View>
+              )}
+            </View>
+
             {isPaymentMode ? (
-              <>
-                <Text style={styles.fieldLabel}>Đợt thu / trả nợ mới</Text>
+              <View style={styles.loanNewPaymentBox}>
+                <Text style={styles.loanNewPaymentTitle}>
+                  Thêm đợt {paymentAction} mới
+                </Text>
                 <TextInput
                   value={loanEditDraft.paymentAmount}
                   onChangeText={(v) => updateLoanEditDraft('paymentAmount', v)}
-                  placeholder="Số tiền đã thu / đã trả"
+                  placeholder={`Số tiền ${paymentAction}`}
                   placeholderTextColor="#6f6a7d"
                   keyboardType="numeric"
                   style={styles.input}
@@ -172,19 +251,19 @@ export default function SuaVayNo({
                 <TextInput
                   value={loanEditDraft.paymentDate}
                   onChangeText={(v) => updateLoanEditDraft('paymentDate', v)}
-                  placeholder="Ngày thu/trả: YYYY-MM-DD"
+                  placeholder={`Ngày ${paymentAction}: YYYY-MM-DD`}
                   placeholderTextColor="#6f6a7d"
                   style={styles.input}
                 />
                 <TextInput
                   value={loanEditDraft.paymentNote}
                   onChangeText={(v) => updateLoanEditDraft('paymentNote', v)}
-                  placeholder="Ghi chú đợt thu/trả (tùy chọn)"
+                  placeholder="Ghi chú đợt mới (tùy chọn)"
                   placeholderTextColor="#6f6a7d"
                   style={[styles.input, styles.noteInput]}
                   multiline
                 />
-              </>
+              </View>
             ) : null}
 
             {loanEditError ? (
